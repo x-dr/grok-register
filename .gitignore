@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+.env
+.env.local
+accounts_output/
+cliproxyapi_auth/
+oauth_records/
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# legacy secrets
+accounts_*.txt
+mail_credentials.txt
+config.json
+config.local.json
+
+# turnstile-solver runtime
+turnstile-solver/.venv/
+turnstile-solver/logs/
+turnstile-solver/keys/
+turnstile-solver/.env
+exports/

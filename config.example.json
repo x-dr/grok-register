@@ -1,0 +1,48 @@
+{
+  "email": "cfmail",
+  "count": 1,
+  "threads": 1,
+  "no_oauth": true,
+  "proxy": "",
+  "captcha": {
+    "provider": "local",
+    "yescaptcha_key": "",
+    "yescaptcha_endpoint": "",
+    "solver_url": "http://127.0.0.1:5072"
+  },
+  "cfmail": {
+    "base_url": "https://xxxxx.xyz",
+    "admin_password": "你的ADMIN_PASSWORDS",
+    "site_password": "",
+    "domain": ""
+  },
+  "tempmail": {
+    "api_key": ""
+  },
+  "cloudflare": {
+    "api_token": "",
+    "account_id": "",
+    "d1_db_id": "",
+    "domains": ""
+  },
+  "oauth": {
+    "cliproxyapi_auth_dir": "./cliproxyapi_auth",
+    "cliproxyapi_base_url": "https://cli-chat-proxy.grok.com/v1",
+    "accounts_output_dir": "./accounts_output"
+  },
+  "accounts_output_dir": "./accounts_output",
+  "no_save": false,
+  "json": false,
+  "_comment": "本地过盾: provider=local + 先启动 ./scripts/start-solver.sh；云打码: provider=yescaptcha + yescaptcha_key，solver_url 留空",
+  "export": {
+    "enabled": true,
+    "dir": "./exports",
+    "formats": [
+      "auth",
+      "sub2api",
+      "cliproxyapi",
+      "bundle",
+      "sso"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+# Local Turnstile solver (YesCaptcha-compatible API on :5072)
+services:
+  turnstile-solver:
+    build:
+      context: ./turnstile-solver
+      dockerfile: Dockerfile
+    container_name: grok-register-turnstile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5072:5072"
+    environment:
+      TURNSTILE_HOST: "0.0.0.0"
+      TURNSTILE_PORT: "5072"
+      TURNSTILE_THREAD: "${TURNSTILE_THREAD:-1}"
+      TURNSTILE_BROWSER_TYPE: "${TURNSTILE_BROWSER_TYPE:-camoufox}"
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5072/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s

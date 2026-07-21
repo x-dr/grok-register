@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grok-register"
+version = "1.0.0"
+description = "Standalone x.ai / Grok protocol registration CLI (from grokcli-2api)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AS-IS — see NOTICE" }
+dependencies = [
+  "curl_cffi>=0.7.0",
+  "requests>=2.31.0",
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+# Optional Playwright fallback only (protocol OAuth does not need a browser)
+browser = ["playwright"]
+
+[project.scripts]
+grok-register = "grok_register.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["grok_register*", "xconsole_client*", "alias_mail*"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
