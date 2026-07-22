@@ -197,17 +197,70 @@ python -m grok_register -e cfmail -n 1 --no-oauth
 ---
 
 
+
+## 远程导入 sub2api / CLIProxyAPI
+
+在 `config.json` 配置：
+
+```json
+{
+  "sub2api": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:8080",
+    "email": "admin@example.com",
+    "password": "your-password",
+    "group_name": "grok-register",
+    "auto_create_group": true,
+    "auto_push_on_register": false,
+    "concurrency": 4,
+    "account_concurrency": 3,
+    "account_priority": 50
+  },
+  "cliproxyapi": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:8317",
+    "management_key": "your-management-key",
+    "auto_push_on_register": false,
+    "concurrency": 4,
+    "base_upstream": "https://cli-chat-proxy.grok.com/v1"
+  }
+}
+```
+
+### 命令
+
+```bash
+# 连通性
+python -m grok_register test-sub2api
+python -m grok_register test-cpa
+
+# 从导出目录 / auth.json 推送
+python -m grok_register push-sub2api ./exports
+python -m grok_register push-sub2api ./exports/auth/auth.json
+python -m grok_register push-cpa ./exports ./cliproxyapi_auth
+
+# 注册成功后自动推送：把对应 auto_push_on_register 设为 true
+```
+
+| 目标 | API |
+|------|-----|
+| sub2api | `POST /api/v1/auth/login` → `POST /api/v1/admin/accounts`（oauth）；无 token 时走 `sso-to-oauth` 或本地 device-flow |
+| CLIProxyAPI | `POST /v0/management/auth-files`（management key） |
+
+> CPA 推送需要 access_token；仅 SSO 的账号请先 `python -m grok_register oauth --from-json ...` 再 push-cpa。
+
+---
 ## 多格式导出
 
-注册成功后默认写入 `exports/`（可在 `config.json` → `export` 配置）：
+注册成功后默认写入 `exports/<格式>/`（可在 `config.json` → `export` 配置）：
 
-| 格式 | 文件 | 用途 |
+| 格式 | 路径 | 用途 |
 |------|------|------|
-| `auth` | `auth.json` / `auth-<ts>.json` | grokcli-2api 号池：`{"auth":{"https://auth.x.ai::<uid>":{...}}}` |
-| `sub2api` | `sub2api-data-<ts>.json` | sub2api「导入数据」：`type=sub2api-data` |
-| `cliproxyapi` | `cliproxyapi_auth/xai-*.json` + bundle | CLIProxyAPI 单账号 auth |
-| `bundle` | `accounts_output/account_*.json` | 完整原始结果 |
-| `sso` | `sso-list-*.json` / `.txt` | 仅 email/password/sso |
+| `auth` | `exports/auth/auth.json` / `auth-<ts>.json` | grokcli-2api 号池：`{"auth":{"https://auth.x.ai::<uid>":{...}}}` |
+| `sub2api` | `exports/sub2api/sub2api-data-<ts>.json` | sub2api「导入数据」：`type=sub2api-data` |
+| `cliproxyapi` | `exports/cliproxyapi/cliproxyapi-bundle-*.json` + `cliproxyapi_auth/xai-*.json`（或 `exports/cliproxyapi/auth/`） | CLIProxyAPI 单账号 auth |
+| `bundle` | `accounts_output/account_*.json`（或 `exports/bundle/`） | 完整原始结果 |
+| `sso` | `exports/sso/sso-list-*.json` / `.txt` | 仅 email/password/sso |
 
 ```json
 "export": {
@@ -223,7 +276,7 @@ python -m grok_register
 
 # 从已有 JSON 再导出
 python -m grok_register export ./accounts_output --export-dir ./exports
-python -m grok_register export ./exports/auth.json --export-formats sub2api,cliproxyapi
+python -m grok_register export ./exports/auth/auth.json --export-formats sub2api,cliproxyapi
 ```
 
 > 完整 OIDC 字段（`key` / `refresh_token` / sub2api oauth credentials）需要 **不要** `--no-oauth`（或 config `no_oauth: false`）。

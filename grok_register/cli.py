@@ -20,6 +20,9 @@ from xconsole_client.xai_oauth import (
 from . import __version__
 from .config import bootstrap, cli_defaults_from_config
 from .export_formats import ALL_FORMATS, export_results, load_results_from_paths
+from . import remote_sub2api as sub2api
+from . import remote_cliproxyapi as cpa
+from .config import get_section
 from .register import resolve_captcha, run_batch
 
 
@@ -319,6 +322,118 @@ def _cmd_sso_oauth(argv: list[str]) -> int:
 
 
 
+
+def _load_rows_for_push(args) -> list[dict]:
+    rows: list[dict] = []
+    if getattr(args, "from_json", None):
+        paths = args.from_json if isinstance(args.from_json, list) else [args.from_json]
+        rows.extend(load_results_from_paths([p for p in paths if p]))
+    if getattr(args, "inputs", None):
+        rows.extend(load_results_from_paths(args.inputs))
+    seen = set()
+    out: list[dict] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        key = (
+            str(r.get("email") or ""),
+            str(r.get("sso") or r.get("sso_cookie") or "")[:24],
+            str(r.get("oauth_access_token") or r.get("access_token") or r.get("key") or "")[:24],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+def _cmd_test_sub2api(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="grok-register test-sub2api")
+    p.add_argument("-c", "--config", default=None)
+    args = p.parse_args(argv)
+    data, path = bootstrap(args.config)
+    cfg = sub2api.normalize_config(get_section(data, "sub2api"))
+    print(f"config: {path}")
+    print(f"base_url: {cfg.get('base_url')}")
+    r = sub2api.test_connection(cfg)
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    return 0 if r.get("ok") else 1
+
+
+def _cmd_test_cpa(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="grok-register test-cpa")
+    p.add_argument("-c", "--config", default=None)
+    args = p.parse_args(argv)
+    data, path = bootstrap(args.config)
+    cfg = cpa.normalize_config(get_section(data, "cliproxyapi"))
+    print(f"config: {path}")
+    print(f"base_url: {cfg.get('base_url')}")
+    r = cpa.test_connection(cfg)
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    return 0 if r.get("ok") else 1
+
+
+def _cmd_push_sub2api(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="grok-register push-sub2api",
+        description="远程导入账号到 sub2api",
+    )
+    p.add_argument("inputs", nargs="*", help="账号 JSON 文件/目录（export/auth/bundle）")
+    p.add_argument("--from-json", action="append", default=[], help="额外输入路径，可重复")
+    p.add_argument("-c", "--config", default=None)
+    p.add_argument("--concurrency", type=int, default=None)
+    p.add_argument("--group-id", type=int, default=None)
+    p.add_argument("--group-name", default=None)
+    args = p.parse_args(argv)
+    data, path = bootstrap(args.config)
+    cfg = sub2api.normalize_config(get_section(data, "sub2api"))
+    if args.group_id is not None:
+        cfg["group_id"] = args.group_id
+    if args.group_name:
+        cfg["group_name"] = args.group_name
+    rows = _load_rows_for_push(args)
+    if not rows:
+        print("no accounts loaded; pass export/auth.json or accounts_output/", file=sys.stderr)
+        return 1
+    print(f"config: {path}")
+    print(f"push {len(rows)} account(s) → {cfg.get('base_url')}")
+    result = sub2api.push_many(rows, cfg=cfg, concurrency=args.concurrency)
+    print(result.get("message"))
+    print(json.dumps({k: v for k, v in result.items() if k != "results"}, ensure_ascii=False, indent=2))
+    fails = [r for r in result.get("results") or [] if not r.get("ok")]
+    for f in fails[:20]:
+        print(f"  FAIL {f.get('email') or f.get('account_id')}: {f.get('error')}")
+    return 0 if result.get("ok") else 1
+
+
+def _cmd_push_cpa(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="grok-register push-cpa",
+        description="远程导入账号到 CLIProxyAPI management API",
+    )
+    p.add_argument("inputs", nargs="*", help="账号 JSON 文件/目录")
+    p.add_argument("--from-json", action="append", default=[], help="额外输入路径，可重复")
+    p.add_argument("-c", "--config", default=None)
+    p.add_argument("--concurrency", type=int, default=None)
+    args = p.parse_args(argv)
+    data, path = bootstrap(args.config)
+    cfg = cpa.normalize_config(get_section(data, "cliproxyapi"))
+    rows = _load_rows_for_push(args)
+    if not rows:
+        print("no accounts loaded; pass export/auth.json or accounts_output/", file=sys.stderr)
+        return 1
+    print(f"config: {path}")
+    print(f"push {len(rows)} account(s) → {cfg.get('base_url')}")
+    result = cpa.push_many(rows, cfg=cfg, concurrency=args.concurrency)
+    print(result.get("message"))
+    print(json.dumps({k: v for k, v in result.items() if k != "results"}, ensure_ascii=False, indent=2))
+    fails = [r for r in result.get("results") or [] if not r.get("ok")]
+    for f in fails[:20]:
+        print(f"  FAIL {f.get('email') or f.get('filename')}: {f.get('error')}")
+    return 0 if result.get("ok") else 1
+
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -329,6 +444,16 @@ def main(argv: list[str] | None = None) -> int:
     # Subcommand: convert SSO → tokens (device flow)
     if argv and argv[0] in {"oauth", "sso-oauth", "device-oauth"}:
         return _cmd_sso_oauth(argv[1:])
+
+    # Remote import
+    if argv and argv[0] in {"push-sub2api", "import-sub2api", "sub2api"}:
+        return _cmd_push_sub2api(argv[1:])
+    if argv and argv[0] in {"push-cpa", "push-cliproxyapi", "import-cpa", "cliproxyapi", "cpa"}:
+        return _cmd_push_cpa(argv[1:])
+    if argv and argv[0] in {"test-sub2api", "sub2api-test"}:
+        return _cmd_test_sub2api(argv[1:])
+    if argv and argv[0] in {"test-cpa", "cpa-test", "test-cliproxyapi"}:
+        return _cmd_test_cpa(argv[1:])
 
     # Pre-parse --config only, so config.json can supply defaults before full parse.
     pre = argparse.ArgumentParser(add_help=False)
@@ -457,6 +582,26 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  {k}: {v}", flush=True)
             except Exception as exc:  # noqa: BLE001
                 print(f"WARN: export failed: {exc}", flush=True)
+
+    # Optional remote auto-push
+    pushable = [r for r in results if isinstance(r, dict) and (r.get("sso") or r.get("oauth_access_token"))]
+    if pushable:
+        try:
+            s2 = sub2api.normalize_config(get_section(cfg_data, "sub2api"))
+            if s2.get("enabled") and s2.get("auto_push_on_register") and s2.get("base_url"):
+                print("\nAuto-push → sub2api …", flush=True)
+                pr = sub2api.push_many(pushable, cfg=s2)
+                print(pr.get("message"), flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARN: sub2api auto-push failed: {exc}", flush=True)
+        try:
+            cp = cpa.normalize_config(get_section(cfg_data, "cliproxyapi"))
+            if cp.get("enabled") and cp.get("auto_push_on_register") and cp.get("base_url"):
+                print("\nAuto-push → CLIProxyAPI …", flush=True)
+                pr = cpa.push_many(pushable, cfg=cp)
+                print(pr.get("message"), flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARN: CPA auto-push failed: {exc}", flush=True)
 
     if ok_sso or ok_build:
         return 0

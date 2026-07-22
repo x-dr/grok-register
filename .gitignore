@@ -32,3 +32,4 @@ turnstile-solver/logs/
 turnstile-solver/keys/
 turnstile-solver/.env
 exports/
+sso_output

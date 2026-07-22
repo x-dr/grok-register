@@ -230,3 +230,16 @@ def bootstrap(
     if data:
         apply_config_to_env(data, force=False)
     return data, path
+
+
+def get_section(data: dict[str, Any] | None, name: str) -> dict[str, Any]:
+    """Return a config section dict (empty if missing)."""
+    if not isinstance(data, dict):
+        return {}
+    sec = data.get(name)
+    return dict(sec) if isinstance(sec, dict) else {}
+
+
+def load_app_config(config_path: str | Path | None = None) -> tuple[dict[str, Any], Path | None]:
+    """Load full config.json (after bootstrap env apply)."""
+    return bootstrap(config_path)

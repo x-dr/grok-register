@@ -1,6 +1,6 @@
 """Multi-format account exporters for registration results.
 
-Formats:
+Formats (written under ``export_dir/<format>/``):
   - auth       : grokcli-2api / pool style ``{"auth": { "https://auth.x.ai::<uid>": {...}}}``
   - sub2api    : sub2api import ``{"type":"sub2api-data","accounts":[...]}``
   - cliproxyapi: CLIProxyAPI per-file ``xai-<email>.json`` + optional bundle
@@ -23,6 +23,8 @@ DEFAULT_OIDC_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
 CLIPROXYAPI_GROK_BASE_URL = "https://cli-chat-proxy.grok.com/v1"
 CLIPROXYAPI_GROK_HEADERS = {
     "X-XAI-Token-Auth": "xai-grok-cli",
+    "x-grok-client-version": "0.2.93",
+    "x-grok-client-identifier": "grok-shell",
 }
 
 ALL_FORMATS = ("auth", "sub2api", "cliproxyapi", "bundle", "sso")
@@ -265,6 +267,13 @@ def to_sub2api_account(n: dict[str, Any], *, concurrency: int = 3, priority: int
 
 
 def to_cliproxyapi_record(n: dict[str, Any], *, base_url: str = CLIPROXYAPI_GROK_BASE_URL) -> dict[str, Any] | None:
+    """Build CLIProxyAPI / grokcli-2api compatible xAI OAuth auth JSON.
+
+    Shape matches:
+      type/auth_kind/email/sub/access_token/refresh_token/id_token/token_type
+      expired/last_refresh/base_url/disabled/headers
+      local_account_id/account_id/note
+    """
     access = n.get("access_token") or ""
     if not access:
         return None
@@ -278,23 +287,33 @@ def to_cliproxyapi_record(n: dict[str, Any], *, base_url: str = CLIPROXYAPI_GROK
         except Exception:
             expired_iso = ""
     claims = decode_jwt_payload(access)
+    sub = str(
+        n.get("user_id")
+        or claims.get("sub")
+        or claims.get("principal_id")
+        or ""
+    ).strip()
+    issuer = str(n.get("oidc_issuer") or claims.get("iss") or DEFAULT_OIDC_ISSUER).rstrip("/")
+    local_account_id = f"{issuer}::{sub}" if sub else ""
+    account_id = sub
+    note = f"grokcli-2api:{local_account_id}" if local_account_id else "grokcli-2api"
     return {
         "type": "xai",
         "auth_kind": "oauth",
         "email": n.get("email") or "",
-        "sub": n.get("user_id") or claims.get("sub") or claims.get("principal_id") or "",
+        "sub": sub,
         "access_token": access,
         "refresh_token": n.get("refresh_token") or "",
         "id_token": "",
         "token_type": "Bearer",
-        "expires_in": None,
         "expired": expired_iso,
         "last_refresh": _utc_now_iso(),
-        "redirect_uri": "",
-        "token_endpoint": f"{(n.get('oidc_issuer') or DEFAULT_OIDC_ISSUER).rstrip('/')}/oauth/token",
-        "base_url": base_url,
+        "base_url": base_url or CLIPROXYAPI_GROK_BASE_URL,
         "disabled": False,
         "headers": dict(CLIPROXYAPI_GROK_HEADERS),
+        "local_account_id": local_account_id,
+        "account_id": account_id,
+        "note": note,
     }
 
 
@@ -388,6 +407,23 @@ def _write_json(path: Path, data: Any) -> Path:
     return path
 
 
+def _format_dir(export_dir: Path, fmt: str) -> Path:
+    """Return ``export_dir/<fmt>/`` and ensure it exists."""
+    d = Path(export_dir) / fmt
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def export_results(
     results: list[dict[str, Any]],
     *,
@@ -398,7 +434,17 @@ def export_results(
     cliproxyapi_base_url: str = CLIPROXYAPI_GROK_BASE_URL,
     stamp: str | None = None,
 ) -> dict[str, Any]:
-    """Write selected formats; return {format: path_or_paths}."""
+    """Write selected formats under type subfolders; return {format: path_or_paths}.
+
+    Layout (under ``export_dir``)::
+
+        auth/auth.json, auth/auth-<ts>.json
+        sub2api/sub2api-data-<ts>.json
+        cliproxyapi/cliproxyapi-bundle-<ts>.json
+        cliproxyapi/auth/xai-*.json          (when cliproxyapi_auth_dir is omitted)
+        bundle/account_*.json                (when accounts_output_dir is omitted)
+        sso/sso-list-<ts>.json|.txt
+    """
     wanted = [f.strip().lower() for f in (formats or list(ALL_FORMATS)) if f and f.strip()]
     wanted = [f for f in wanted if f in ALL_FORMATS]
     if not wanted:
@@ -413,15 +459,15 @@ def export_results(
 
     if "auth" in wanted:
         payload = build_auth_payload(rows)
-        path = _write_json(out_dir / f"auth-{ts}.json", payload)
-        # also maintain a rolling auth.json merge
-        rolling = out_dir / "auth.json"
-        existing: dict[str, Any] = {}
-        if rolling.exists():
-            try:
-                existing = json.loads(rolling.read_text(encoding="utf-8"))
-            except Exception:
-                existing = {}
+        auth_dir = _format_dir(out_dir, "auth")
+        path = _write_json(auth_dir / f"auth-{ts}.json", payload)
+        # also maintain a rolling auth.json merge (prefer type dir; fall back to legacy flat path)
+        rolling = auth_dir / "auth.json"
+        existing = _load_json_dict(rolling)
+        if not existing.get("auth"):
+            legacy = _load_json_dict(out_dir / "auth.json")
+            if legacy.get("auth"):
+                existing = legacy
         auth_map = dict(existing.get("auth") or {}) if isinstance(existing, dict) else {}
         auth_map.update(payload.get("auth") or {})
         _write_json(
@@ -435,17 +481,22 @@ def export_results(
         )
         written["files"]["auth"] = str(path)
         written["files"]["auth_rolling"] = str(rolling)
+        written["files"]["auth_dir"] = str(auth_dir)
 
     if "sub2api" in wanted:
         payload = build_sub2api_payload(rows)
-        path = _write_json(out_dir / f"sub2api-data-{ts}.json", payload)
+        sub_dir = _format_dir(out_dir, "sub2api")
+        path = _write_json(sub_dir / f"sub2api-data-{ts}.json", payload)
         written["files"]["sub2api"] = str(path)
+        written["files"]["sub2api_dir"] = str(sub_dir)
 
     if "cliproxyapi" in wanted:
         bundle = build_cliproxyapi_bundle(rows, base_url=cliproxyapi_base_url)
-        path = _write_json(out_dir / f"cliproxyapi-bundle-{ts}.json", bundle)
+        cpa_dir = _format_dir(out_dir, "cliproxyapi")
+        path = _write_json(cpa_dir / f"cliproxyapi-bundle-{ts}.json", bundle)
         written["files"]["cliproxyapi_bundle"] = str(path)
-        cdir = Path(cliproxyapi_auth_dir or (out_dir / "cliproxyapi_auth"))
+        written["files"]["cliproxyapi_export_dir"] = str(cpa_dir)
+        cdir = Path(cliproxyapi_auth_dir or (cpa_dir / "auth"))
         cdir.mkdir(parents=True, exist_ok=True)
         files: list[str] = []
         for rec in bundle.get("accounts") or []:
@@ -461,7 +512,7 @@ def export_results(
         written["files"]["cliproxyapi_files"] = files
 
     if "bundle" in wanted:
-        bdir = Path(accounts_output_dir or (out_dir / "accounts_output"))
+        bdir = Path(accounts_output_dir or _format_dir(out_dir, "bundle"))
         bdir.mkdir(parents=True, exist_ok=True)
         files = []
         for r in rows:
@@ -476,9 +527,10 @@ def export_results(
 
     if "sso" in wanted:
         payload = build_sso_list(rows)
-        path = _write_json(out_dir / f"sso-list-{ts}.json", payload)
+        sso_dir = _format_dir(out_dir, "sso")
+        path = _write_json(sso_dir / f"sso-list-{ts}.json", payload)
         # also plaintext convenience
-        txt = out_dir / f"sso-list-{ts}.txt"
+        txt = sso_dir / f"sso-list-{ts}.txt"
         lines = []
         for item in payload:
             lines.append(
@@ -487,6 +539,7 @@ def export_results(
         txt.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         written["files"]["sso"] = str(path)
         written["files"]["sso_txt"] = str(txt)
+        written["files"]["sso_dir"] = str(sso_dir)
 
     return written
 

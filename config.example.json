@@ -44,5 +44,28 @@
       "bundle",
       "sso"
     ]
+  },
+  "sub2api": {
+    "enabled": false,
+    "base_url": "http://127.0.0.1:8080",
+    "email": "admin@example.com",
+    "password": "your-password",
+    "group_id": null,
+    "group_name": "grok-register",
+    "auto_create_group": true,
+    "auto_push_on_register": false,
+    "concurrency": 4,
+    "account_concurrency": 3,
+    "account_priority": 50,
+    "notes_prefix": "grok-register"
+  },
+  "cliproxyapi": {
+    "enabled": false,
+    "base_url": "http://127.0.0.1:8317",
+    "management_key": "your-management-key",
+    "auto_push_on_register": false,
+    "concurrency": 4,
+    "base_upstream": "https://cli-chat-proxy.grok.com/v1",
+    "notes_prefix": "grok-register"
   }
 }

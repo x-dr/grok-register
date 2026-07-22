@@ -335,21 +335,29 @@ def build_cliproxyapi_auth_record(
     disabled: bool = False,
     base_url: str = CLIPROXYAPI_GROK_BASE_URL,
     headers: Optional[Dict[str, str]] = None,
+    note_prefix: str = "grokcli-2api",
 ) -> Dict[str, Any]:
-    """Build a CLIProxyAPI-compatible xAI auth JSON record.
+    """Build a CLIProxyAPI / grokcli-2api-compatible xAI auth JSON record.
 
     The generated record intentionally uses ``cli-chat-proxy.grok.com`` by
     default.  That is the Grok CLI / Build channel used by tokens containing
     ``grok-cli:access``.  Using ``https://api.x.ai/v1`` instead routes requests
     to xAI API-credit billing and can return 402 even when Grok CLI works.
+
+    Required fields (CLIProxyAPI / grokcli-2api):
+      type, auth_kind, email, sub, access_token, refresh_token, id_token,
+      token_type, expired, last_refresh, base_url, disabled, headers
+      (X-XAI-Token-Auth + x-grok-client-version + x-grok-client-identifier),
+      local_account_id, account_id, note
     """
 
     id_payload = parse_jwt_payload(str(token.get("id_token") or "")) or {}
+    access_payload = parse_jwt_payload(str(token.get("access_token") or "")) or {}
     email = ""
     if userinfo:
         email = str(userinfo.get("email") or "")
     if not email:
-        email = str(id_payload.get("email") or "")
+        email = str(id_payload.get("email") or access_payload.get("email") or "")
 
     expires_at = token.get("expires_at")
     if expires_at is None and token.get("expires_in") is not None:
@@ -357,28 +365,56 @@ def build_cliproxyapi_auth_record(
             expires_at = int(time.time()) + int(token["expires_in"])
         except Exception:
             expires_at = None
+    if expires_at is None and access_payload.get("exp") is not None:
+        try:
+            expires_at = int(access_payload["exp"])
+        except Exception:
+            expires_at = None
 
     merged_headers = dict(CLIPROXYAPI_GROK_HEADERS)
     if headers:
-        merged_headers.update({str(k): str(v) for k, v in headers.items() if str(k).strip() and str(v).strip()})
+        merged_headers.update(
+            {
+                str(k): str(v)
+                for k, v in headers.items()
+                if str(k).strip() and str(v).strip()
+            }
+        )
+
+    sub = ""
+    if userinfo and userinfo.get("sub"):
+        sub = str(userinfo.get("sub") or "")
+    if not sub:
+        sub = str(
+            id_payload.get("sub")
+            or access_payload.get("sub")
+            or access_payload.get("principal_id")
+            or id_payload.get("principal_id")
+            or ""
+        )
+    local_account_id = f"{ISSUER}::{sub}" if sub else ""
+    note = f"{note_prefix}:{local_account_id}" if local_account_id else note_prefix
+
+    # redirect_uri kept as unused kwarg for call-site compatibility.
+    _ = redirect_uri
 
     record = {
         "type": "xai",
         "auth_kind": "oauth",
         "email": email,
-        "sub": str(id_payload.get("sub") or userinfo.get("sub") if userinfo else id_payload.get("sub") or ""),
+        "sub": sub,
         "access_token": token.get("access_token", ""),
         "refresh_token": token.get("refresh_token", ""),
         "id_token": token.get("id_token", ""),
         "token_type": token.get("token_type", "Bearer"),
-        "expires_in": token.get("expires_in", None),
         "expired": _iso_utc_from_unix(expires_at),
         "last_refresh": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "redirect_uri": redirect_uri,
-        "token_endpoint": TOKEN_ENDPOINT,
-        "base_url": base_url,
+        "base_url": base_url or CLIPROXYAPI_GROK_BASE_URL,
         "disabled": disabled,
         "headers": merged_headers,
+        "local_account_id": local_account_id,
+        "account_id": sub,
+        "note": note,
     }
     return record
 
