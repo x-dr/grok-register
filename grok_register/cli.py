@@ -566,14 +566,10 @@ def main(argv: list[str] | None = None) -> int:
         flush=True,
     )
     print(f"{'=' * 50}", flush=True)
-    for r in results:
+    # 完成设定数量后不逐条列出成功账号，仅摘要；失败仍打印便于排查
+    for r in fail:
         email = r.get("email") or "?"
-        if r.get("cliproxyapi_auth"):
-            print(f"  {email:40s}  BUILD  {r['cliproxyapi_auth']}", flush=True)
-        elif r.get("sso") and not do_oauth:
-            sso = str(r["sso"])
-            print(f"  {email:40s}  SSO    {sso[:36]}...", flush=True)
-        elif r.get("sso") and r.get("error"):
+        if r.get("sso") and r.get("error"):
             print(f"  {email:40s}  SSO-ok OAuth-FAIL: {r.get('error')}", flush=True)
         else:
             print(f"  {email:40s}  FAIL: {r.get('error', '?')}", flush=True)
