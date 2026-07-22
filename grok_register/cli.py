@@ -148,7 +148,7 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
     p.add_argument(
         "--proxy",
         default=d.get("proxy"),
-        help="HTTP(S) 代理（默认读 config / HTTPS_PROXY）",
+        help="HTTP/HTTPS/SOCKS5 代理，如 socks5h://127.0.0.1:40000（WARP）或 http://127.0.0.1:7890",
     )
     default_fmts = d.get("export_formats")
     if not default_fmts:
@@ -513,6 +513,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  build-base-url:       {args.cliproxyapi_base_url}", flush=True)
     if out_dir:
         print(f"  accounts-output-dir:  {out_dir}", flush=True)
+    # Proxy diagnostics (SOCKS without PySocks / dead WARP look like "没网")
+    try:
+        from .proxyutil import (
+            apply_proxy_env,
+            format_proxy_startup_lines,
+            normalize_proxy,
+            socks_dependency_error,
+        )
+
+        px = normalize_proxy(args.proxy) if args.proxy else ""
+        if px:
+            apply_proxy_env(px, force=True)
+        for line in format_proxy_startup_lines(px or None):
+            print(line, flush=True)
+        dep_err = socks_dependency_error(px or None)
+        if dep_err:
+            print(dep_err, flush=True)
+            return 2
+    except Exception as e:
+        print(f"  proxy: (diagnostic failed: {e})", flush=True)
     print(flush=True)
 
     t0 = time.time()

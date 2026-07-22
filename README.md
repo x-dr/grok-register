@@ -75,7 +75,7 @@ cp config.example.json config.json
 | `cfmail.admin_password` | 对应 `ADMIN_PASSWORDS` |
 | `cfmail.domain` | 可选收信域名，空则自动选 |
 | `cfmail.site_password` | 可选，站点 `PASSWORDS` |
-| `proxy` | 可选 HTTP 代理 |
+| `proxy` | 可选 HTTP/HTTPS/SOCKS5 代理（如 `socks5h://127.0.0.1:40000`） |
 | `tempmail.api_key` | `-e tempmail` 时 |
 | `cloudflare.*` | 仅 D1 后端时 |
 
@@ -150,12 +150,24 @@ sudo bash scripts/install-warp-proxy.sh --status
 sudo bash scripts/install-warp-proxy.sh --uninstall
 ```
 
-安装后示例：
+安装后示例（推荐 **socks5h**，DNS 走代理；`socks5://` 也会被自动规范化为 `socks5h://`）：
 
 ```bash
-export HTTPS_PROXY=socks5://127.0.0.1:40000
-# 或 config.json: "proxy": "socks5://127.0.0.1:40000"
+export HTTPS_PROXY=socks5h://127.0.0.1:40000
+export HTTP_PROXY=socks5h://127.0.0.1:40000
+# 本地过盾 / 管理面板不要走代理（程序也会自动设置 NO_PROXY）
+export NO_PROXY=localhost,127.0.0.1,::1
+
+# 或 config.json:
+# "proxy": "socks5h://127.0.0.1:40000"
 ```
+
+**填了 proxy 却“没网”时请检查：**
+
+1. WARP 是否在听端口：`sudo bash scripts/install-warp-proxy.sh --status`（需能 curl 出 `warp=on`）
+2. 依赖：`pip install PySocks`（`requests` 走 SOCKS 必需；缺了会报 `Missing dependencies for SOCKS support`）
+3. 用 `socks5h://` 而不是错误的 HTTP 代理格式
+4. 本地 captcha solver（`127.0.0.1:5072`）与局域网 sub2api 会绕过代理
 
 支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。无完整 systemd 的容器会自动回退：`service warp-svc start` → 直接 `nohup warp-svc`。
 

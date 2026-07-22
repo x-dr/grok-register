@@ -31,6 +31,28 @@ from typing import Callable, Optional
 
 import requests
 
+def _is_loopback_url(url: str) -> bool:
+    u = (url or "").lower()
+    return any(
+        x in u
+        for x in (
+            "://127.0.0.1",
+            "://localhost",
+            "://[::1]",
+            "://0.0.0.0",
+        )
+    )
+
+
+def _requests_session_for(url: str) -> requests.Session:
+    """Local captcha solver must not go through SOCKS/HTTP proxy env."""
+    sess = requests.Session()
+    if _is_loopback_url(url):
+        sess.trust_env = False
+        sess.proxies = {"http": None, "https": None}
+    return sess
+
+
 
 DEFAULT_ENDPOINTS = (
     "https://api.yescaptcha.com",
@@ -107,7 +129,7 @@ class YesCaptchaSolver:
     def _post_json(self, path: str, payload: dict, *, timeout: float = 30.0) -> dict:
         url = f"{self._endpoint}{path}"
         try:
-            resp = requests.post(url, json=payload, timeout=timeout)
+            resp = _requests_session_for(url).post(url, json=payload, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
             if not isinstance(data, dict):
@@ -126,7 +148,9 @@ class YesCaptchaSolver:
                 raise
             self._progress(f"endpoint {self._endpoint} failed ({first_err}); fallback {peer}")
             self._endpoint = peer
-            resp = requests.post(f"{self._endpoint}{path}", json=payload, timeout=timeout)
+            resp = _requests_session_for(f"{self._endpoint}{path}").post(
+                f"{self._endpoint}{path}", json=payload, timeout=timeout
+            )
             resp.raise_for_status()
             data = resp.json()
             if not isinstance(data, dict):

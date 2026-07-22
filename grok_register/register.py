@@ -56,13 +56,22 @@ def _default_log(index: int, msg: str, *, done: int = 0, total: int = 0, t0: flo
 
 
 def resolve_proxy() -> str:
-    return (
-        os.environ.get("HTTPS_PROXY")
-        or os.environ.get("HTTP_PROXY")
-        or os.environ.get("https_proxy")
-        or os.environ.get("http_proxy")
-        or ""
-    ).strip()
+    try:
+        from .proxyutil import resolve_proxy_from_env, apply_proxy_env
+
+        p = resolve_proxy_from_env()
+        if p:
+            # Keep env normalized (socks5→socks5h) + NO_PROXY for local services.
+            return apply_proxy_env(p, force=True)
+        return ""
+    except Exception:
+        return (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("http_proxy")
+            or ""
+        ).strip()
 
 
 def resolve_captcha(
@@ -252,7 +261,17 @@ def register_one(
         }
 
     proxy = (proxy if proxy is not None else resolve_proxy()) or ""
-    c = XConsoleAuthClient(debug=False, signup_url=SIGNUP_URL)
+    try:
+        from .proxyutil import apply_proxy_env, socks_dependency_error, normalize_proxy
+
+        proxy = apply_proxy_env(proxy, force=bool(proxy)) if proxy else resolve_proxy()
+        proxy = normalize_proxy(proxy)
+        err = socks_dependency_error(proxy)
+        if err:
+            _log(err.replace("\n", " "))
+    except Exception:
+        pass
+    c = XConsoleAuthClient(debug=False, signup_url=SIGNUP_URL, proxy=proxy or None)
     email = ""
     password = ""
     sso = None

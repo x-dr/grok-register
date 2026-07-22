@@ -14,8 +14,8 @@
 #   3) nohup 直接后台运行 warp-svc
 #
 # 安装完成后示例:
-#   export HTTPS_PROXY=socks5://127.0.0.1:40000
-#   # 或 config.json: "proxy": "socks5://127.0.0.1:40000"
+#   export HTTPS_PROXY=socks5h://127.0.0.1:40000
+#   # 或 config.json: "proxy": "socks5h://127.0.0.1:40000"
 #
 # 注意: 本脚本只负责生成/安装 WARP 代理环境；请遵守 Cloudflare 与当地法规。
 
@@ -397,18 +397,19 @@ WARP SOCKS5 代理已配置
 
 在当前 shell 使用:
 
-  export HTTPS_PROXY=socks5://127.0.0.1:${PROXY_PORT}
-  export HTTP_PROXY=socks5://127.0.0.1:${PROXY_PORT}
-  export ALL_PROXY=socks5://127.0.0.1:${PROXY_PORT}
+  export HTTPS_PROXY=socks5h://127.0.0.1:${PROXY_PORT}
+  export HTTP_PROXY=socks5h://127.0.0.1:${PROXY_PORT}
+  export ALL_PROXY=socks5h://127.0.0.1:${PROXY_PORT}
+  export NO_PROXY=localhost,127.0.0.1,::1
 
 或写入 grok-register 配置 (config.json):
 
-  "proxy": "socks5://127.0.0.1:${PROXY_PORT}"
+  "proxy": "socks5h://127.0.0.1:${PROXY_PORT}"
 
 或 .env:
 
-  HTTPS_PROXY=socks5://127.0.0.1:${PROXY_PORT}
-  HTTP_PROXY=socks5://127.0.0.1:${PROXY_PORT}
+  HTTPS_PROXY=socks5h://127.0.0.1:${PROXY_PORT}
+  HTTP_PROXY=socks5h://127.0.0.1:${PROXY_PORT}
 
 常用命令:
 

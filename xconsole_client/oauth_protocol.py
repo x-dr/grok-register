@@ -226,7 +226,11 @@ class ProtocolOAuthClient:
             raise RuntimeError("curl_cffi is required for protocol OAuth") from exc
         kwargs: Dict[str, Any] = {"impersonate": impersonate}
         if proxy:
-            kwargs["proxies"] = {"http": proxy, "https": proxy}
+            px = proxy.strip()
+            if px.lower().startswith("socks5://"):
+                px = "socks5h://" + px[len("socks5://") :]
+            kwargs["proxies"] = {"http": px, "https": px}
+            kwargs["proxy"] = px  # curl_cffi also accepts proxy=
         self._s = creq.Session(**kwargs)
 
     def load_cookies(self, cookies: Dict[str, str]) -> None:

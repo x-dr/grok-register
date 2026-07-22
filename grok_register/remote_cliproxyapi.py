@@ -15,6 +15,35 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+def _is_private_or_local_url(url: str) -> bool:
+    """True if URL host is loopback / private — must not use outbound SOCKS."""
+    try:
+        from urllib.parse import urlparse
+        import ipaddress
+        host = (urlparse(url).hostname or "").strip().lower()
+        if not host:
+            return False
+        if host in {"localhost", "0.0.0.0"} or host.endswith(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+            return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+        except ValueError:
+            return False
+    except Exception:
+        return False
+
+
+def _urlopen(req: "urllib.request.Request", timeout: float):
+    """urlopen that skips HTTP(S)_PROXY for private/local management APIs."""
+    import urllib.request
+    url = req.full_url if hasattr(req, "full_url") else req.get_full_url()
+    if _is_private_or_local_url(url):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 from .export_formats import to_cliproxyapi_record, normalize_result
 
 _DEFAULT_TIMEOUT = 45.0
@@ -86,7 +115,7 @@ def _http(
 ) -> tuple[int, bytes, dict[str, str]]:
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method.upper())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen(req, timeout=timeout) as resp:
             body = resp.read()
             status = int(getattr(resp, "status", 200) or 200)
             return status, body, dict(resp.headers.items())

@@ -4,6 +4,7 @@
   "threads": 1,
   "no_oauth": true,
   "proxy": "",
+  "_proxy_hint": "可选: socks5h://127.0.0.1:40000 (WARP) 或 http://127.0.0.1:7890；SOCKS 需 pip install PySocks",
   "captcha": {
     "provider": "local",
     "yescaptcha_key": "",

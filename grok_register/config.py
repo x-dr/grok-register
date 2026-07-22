@@ -130,11 +130,60 @@ def apply_config_to_env(data: dict[str, Any], *, force: bool = False) -> list[st
         val = _as_str(_dig(data, path))
         if val is None:
             continue
+        # Proxy values are normalized + NO_PROXY is set after the loop.
+        if env_key in {"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"}:
+            continue
         if not force and (os.environ.get(env_key) or "").strip():
             continue
         os.environ[env_key] = val
         if env_key not in applied:
             applied.append(env_key)
+
+    # Normalize SOCKS/HTTP proxy and ensure local services bypass it.
+    # Without this, socks5://127.0.0.1:40000 + missing PySocks looks like "没网".
+    proxy_raw = (
+        _as_str(_dig(data, ("proxy",)))
+        or _as_str(_dig(data, ("https_proxy",)))
+        or _as_str(_dig(data, ("http_proxy",)))
+        or ""
+    )
+    if proxy_raw:
+        try:
+            from .proxyutil import apply_proxy_env, normalize_proxy
+
+            # Only apply from config when env not already set (unless force).
+            existing = (
+                (os.environ.get("HTTPS_PROXY") or "").strip()
+                or (os.environ.get("HTTP_PROXY") or "").strip()
+            )
+            if force or not existing:
+                pnorm = apply_proxy_env(proxy_raw, force=True)
+            else:
+                # Still normalize existing env socks5 → socks5h and set NO_PROXY.
+                pnorm = apply_proxy_env(existing, force=True)
+            if pnorm:
+                for k in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+                    if k not in applied:
+                        applied.append(k)
+        except Exception:
+            # Fallback: write raw values
+            for env_key in ("HTTPS_PROXY", "HTTP_PROXY"):
+                if force or not (os.environ.get(env_key) or "").strip():
+                    os.environ[env_key] = proxy_raw
+                    if env_key not in applied:
+                        applied.append(env_key)
+    else:
+        # Even without config proxy, if user exported socks5 ensure NO_PROXY.
+        try:
+            from .proxyutil import resolve_proxy_from_env, apply_proxy_env, ensure_no_proxy
+
+            env_p = resolve_proxy_from_env()
+            if env_p:
+                apply_proxy_env(env_p, force=True)
+            else:
+                ensure_no_proxy()
+        except Exception:
+            pass
     return applied
 
 
@@ -152,7 +201,15 @@ def cli_defaults_from_config(data: dict[str, Any]) -> dict[str, Any]:
     set_if("count", data.get("count") or data.get("n"))
     set_if("threads", data.get("threads") or data.get("t"))
     set_if("email", data.get("email") or data.get("email_backend") or data.get("mail"))
-    set_if("proxy", data.get("proxy") or data.get("https_proxy") or data.get("http_proxy"))
+    raw_proxy = data.get("proxy") or data.get("https_proxy") or data.get("http_proxy")
+    if raw_proxy:
+        try:
+            from .proxyutil import normalize_proxy
+
+            raw_proxy = normalize_proxy(str(raw_proxy))
+        except Exception:
+            pass
+    set_if("proxy", raw_proxy)
 
     captcha = data.get("captcha") if isinstance(data.get("captcha"), dict) else {}
     set_if("captcha", captcha.get("provider") or data.get("captcha_provider"))
@@ -229,6 +286,18 @@ def bootstrap(
     data, path = load_config_file(config_path)
     if data:
         apply_config_to_env(data, force=False)
+    else:
+        # No config file: still normalize SOCKS env + NO_PROXY for local services.
+        try:
+            from .proxyutil import resolve_proxy_from_env, apply_proxy_env, ensure_no_proxy
+
+            env_p = resolve_proxy_from_env()
+            if env_p:
+                apply_proxy_env(env_p, force=True)
+            else:
+                ensure_no_proxy()
+        except Exception:
+            pass
     return data, path
 
 

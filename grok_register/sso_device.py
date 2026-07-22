@@ -77,16 +77,25 @@ def _is_rate_limited_payload(
 
 
 def _proxy_kwargs() -> dict[str, Any]:
-    proxy = (
-        os.environ.get("HTTPS_PROXY")
-        or os.environ.get("HTTP_PROXY")
-        or os.environ.get("https_proxy")
-        or os.environ.get("http_proxy")
-        or ""
-    ).strip()
-    if not proxy:
-        return {}
-    return {"proxies": {"http": proxy, "https": proxy}}
+    try:
+        from .proxyutil import requests_kwargs_for_proxy
+
+        return requests_kwargs_for_proxy()
+    except Exception:
+        proxy = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("http_proxy")
+            or ""
+        ).strip()
+        if not proxy:
+            return {}
+        # Prefer socks5h for remote DNS (WARP / many SOCKS providers).
+        if proxy.lower().startswith("socks5://"):
+            proxy = "socks5h://" + proxy[len("socks5://") :]
+        return {"proxies": {"http": proxy, "https": proxy}}
+
 
 
 def _poll_interval_sec(raw: Any = 1) -> float:

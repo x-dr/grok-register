@@ -66,22 +66,24 @@ class FingerprintTransport:
         self._http_version = http_version
         self._timeout = timeout
         self._debug = debug
-        self._proxy = (proxy or "").strip() or None
+        raw_proxy = (proxy or "").strip() or None
+        # socks5 → socks5h so DNS goes through the proxy (WARP / many SOCKS).
+        if raw_proxy and raw_proxy.lower().startswith("socks5://"):
+            raw_proxy = "socks5h://" + raw_proxy[len("socks5://") :]
+        self._proxy = raw_proxy
         # A new Session per client. The browser-equivalent fingerprint is
         # established by `impersonate=`; it is fixed for the session's life.
+        # trust_env=False: only use explicit proxy (config already set env;
+        # avoids double-proxy and keeps behaviour predictable).
         self._session = cc_requests.Session(
             impersonate=impersonate,
             http_version=http_version,
             ja3=DEFAULT_JA3,
+            trust_env=False,
+            proxy=self._proxy,
         )
         # Make sure default Accept-Encoding is exactly the Chrome order.
         self._session.headers["accept-encoding"] = accept_encoding
-        # Apply proxy if provided (was previously accepted but ignored).
-        if self._proxy:
-            self._session.proxies = {
-                "http": self._proxy,
-                "https": self._proxy,
-            }
 
     # ----------------------------------------------------------------- transport
     def request(
@@ -111,8 +113,9 @@ class FingerprintTransport:
             "timeout": self._timeout,
             "allow_redirects": False,  # we want to see 3xx, like the real browser
         }
+        # Session already carries proxy=; re-pass for safety on older curl_cffi.
         if self._proxy:
-            req_kwargs["proxies"] = {"http": self._proxy, "https": self._proxy}
+            req_kwargs["proxy"] = self._proxy
         resp = self._session.request(**req_kwargs)
         status = resp.status_code
         raw = resp.content
