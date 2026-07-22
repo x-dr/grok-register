@@ -1,51 +1,67 @@
 # turnstile-solver
 
-`grokcli-2api` 子模块：本地 Cloudflare Turnstile 过盾。
+`grok-register` 内置的本地 Cloudflare Turnstile 过盾服务。
 
-默认以**内联方式**运行在主容器 `grokcli-2api` 内（同一容器，loopback `127.0.0.1:5072`）。
+提供 **YesCaptcha 兼容** API，默认监听 `http://127.0.0.1:5072`。
 
-## 运行方式（推荐）
+## 快速启动（推荐）
 
-主容器启动时，`entrypoint.sh` 自动拉起：
+在仓库根目录：
 
 ```bash
-cd /root/grokcli-2api
-docker compose up -d --build grokcli-2api
+# 本机进程（默认，无需 Docker）
+./scripts/start-solver.sh
+# 或
+./scripts/start-solver.sh --local
+
+# Docker（可选）
+./scripts/start-solver.sh --docker
+
+# 停止
+./scripts/stop-solver.sh
 ```
 
-容器内地址：
+也可在本目录直接：
 
-```text
-http://127.0.0.1:5072
+```bash
+./start.sh    # 首次自动 venv + 依赖 + 浏览器
+./stop.sh
 ```
 
-环境变量：
+## 环境变量
 
-```env
-GROK2API_CAPTCHA_PROVIDER=local
-GROK2API_LOCAL_SOLVER_URL=http://127.0.0.1:5072
-GROK2API_INLINE_SOLVER=1
-TURNSTILE_THREAD=3
-```
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `TURNSTILE_HOST` | `0.0.0.0` | 监听地址 |
+| `TURNSTILE_PORT` | `5072` | 端口 |
+| `TURNSTILE_THREAD` | `2`（本机 `start.sh`）/ compose 默认 `1` | 浏览器线程；小机器建议 `1` |
+| `TURNSTILE_BROWSER_TYPE` | `camoufox` | `camoufox` / `chromium` 等 |
+| `SOLVER_MODE` | `local` | 根脚本：`local` 或 `docker` |
 
 ## 协议
 
 - `POST /createTask`
 - `POST /getTaskResult`
 
+与 YesCaptcha 任务协议兼容；`grok-register` 配置：
+
+```json
+"captcha": {
+  "provider": "local",
+  "solver_url": "http://127.0.0.1:5072"
+}
+```
+
 ## 日志
 
 ```bash
-docker exec grokcli-2api tail -n 100 /app/turnstile-solver/logs/turnstile_solver.log
-# 或宿主机映射
-tail -n 100 /root/grokcli-2api/turnstile-solver/logs/turnstile_solver.log
+# 本机
+tail -n 100 logs/turnstile_solver.log
+
+# Docker
+docker logs -f grok-register-turnstile
 ```
 
-## 可选：宿主机单独启动
+## Windows
 
-仅调试用：
-
-```bash
-./start.sh
-./stop.sh
-```
+可尝试 `TurnstileSolver.bat`，或在 Git Bash / WSL 中运行 `start.sh`。

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Start local Turnstile Solver (host process; reachable by grokcli-2api container via docker bridge gateway).
+# Start local Turnstile Solver (host process for grok-register).
+# Listens on TURNSTILE_HOST:TURNSTILE_PORT (default 0.0.0.0:5072).
 set -euo pipefail
 cd "$(dirname "$0")"
 

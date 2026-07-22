@@ -12,7 +12,41 @@
 
 ---
 
-## 安装
+## 快速开始（推荐顺序）
+
+按下面 **1 → 4** 走一遍即可完成首次注册（默认本地过盾 + CF Temp Email）：
+
+```bash
+# ① 安装本 CLI
+cd grok-register
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .                   # 可选：获得 grok-register 命令
+
+# ② 启动本地过盾（默认本机进程，无需 Docker；首次会装 Camoufox，较慢）
+./scripts/start-solver.sh
+# 小机器建议：TURNSTILE_THREAD=1 ./scripts/start-solver.sh
+
+# ③ 配置
+cp config.example.json config.json
+# 编辑 config.json：captcha.provider=local，以及 cfmail / 邮箱相关字段
+
+# ④ 注册
+python -m grok_register
+```
+
+停止过盾：
+
+```bash
+./scripts/stop-solver.sh
+```
+
+更细的配置、云打码、WARP 代理、导出与远程推送见下文各节。
+
+---
+
+## 1. 安装
 
 ```bash
 cd grok-register
@@ -25,12 +59,113 @@ pip install -e .
 
 ```bash
 cp .env.example .env
-# 编辑 .env：至少配置打码 + 邮箱
+# 可选：环境变量方式配置邮箱 / 打码（更推荐 config.json）
 ```
 
 ---
 
-## 配置（推荐 config.json）
+## 2. 本地过盾（Turnstile Solver）
+
+注册需要通过 Cloudflare Turnstile。本仓库内置 `turnstile-solver/`（YesCaptcha 兼容 `POST /createTask` / `POST /getTaskResult`），监听 **`http://127.0.0.1:5072`**。
+
+### 2.1 本机进程启动（推荐，默认）
+
+无需 Docker，直接起 Python + Camoufox：
+
+```bash
+# 默认 = 本机
+./scripts/start-solver.sh
+# 等价
+./scripts/start-solver.sh --local
+
+# 可选环境变量
+TURNSTILE_THREAD=1 \
+TURNSTILE_BROWSER_TYPE=camoufox \
+TURNSTILE_PORT=5072 \
+./scripts/start-solver.sh --local
+```
+
+也可进入子目录手动启动（与上面等价）：
+
+```bash
+cd turnstile-solver
+./start.sh          # 首次自动创建 .venv、装依赖、拉取浏览器
+./stop.sh
+```
+
+日志与 PID：
+
+```text
+turnstile-solver/logs/turnstile_solver.log
+turnstile-solver/logs/turnstile_solver.pid
+```
+
+### 2.2 Docker 启动（可选）
+
+适合想隔离浏览器依赖的环境：
+
+```bash
+./scripts/start-solver.sh --docker
+# 或
+SOLVER_MODE=docker ./scripts/start-solver.sh
+```
+
+对应 `docker-compose.solver.yml`（`127.0.0.1:5072`）。首次 `docker compose` 构建会安装 Camoufox，较慢（数分钟）。
+
+无 Docker 时 `--docker` 会自动回退到本机进程。
+
+### 2.3 接到注册机
+
+`config.json`：
+
+```json
+"captcha": {
+  "provider": "local",
+  "solver_url": "http://127.0.0.1:5072"
+}
+```
+
+或命令行 / 环境变量：
+
+```bash
+export GROK_REGISTER_CAPTCHA=local
+export GROK_REGISTER_SOLVER_URL=http://127.0.0.1:5072
+python -m grok_register --captcha local --solver-url http://127.0.0.1:5072
+```
+
+### 2.4 云打码（可选替代）
+
+不想本地起浏览器时，改用 YesCaptcha：
+
+```json
+"captcha": {
+  "provider": "yescaptcha",
+  "yescaptcha_key": "你的YesCaptcha_Key"
+}
+```
+
+```bash
+export YESCAPTCHA_API_KEY=...
+export GROK_REGISTER_CAPTCHA=yescaptcha
+```
+
+### 2.5 常用调参
+
+| 变量 / 参数 | 说明 |
+|-------------|------|
+| `TURNSTILE_THREAD` | 浏览器线程，小机器建议 `1` |
+| `TURNSTILE_BROWSER_TYPE` | 默认 `camoufox`；也可 `chromium` 等 |
+| `TURNSTILE_PORT` | 默认 `5072` |
+| `SOLVER_MODE` | `local`（默认）或 `docker` |
+
+```bash
+./scripts/start-solver.sh --help
+./scripts/stop-solver.sh
+```
+
+---
+
+## 3. 配置（推荐 config.json）
 
 复制示例并编辑真实密钥（`config.json` 已在 `.gitignore`）：
 
@@ -39,7 +174,7 @@ cp config.example.json config.json
 # 编辑 config.json
 ```
 
-针对你的 CF Temp Email（`https://xxxxx.xyz`）最小配置：
+**最小配置（本地过盾 + CF Temp Email）**：
 
 ```json
 {
@@ -48,8 +183,8 @@ cp config.example.json config.json
   "threads": 1,
   "no_oauth": true,
   "captcha": {
-    "provider": "yescaptcha",
-    "yescaptcha_key": "你的YesCaptcha_Key"
+    "provider": "local",
+    "solver_url": "http://127.0.0.1:5072"
   },
   "cfmail": {
     "base_url": "https://xxxxx.xyz",
@@ -68,9 +203,9 @@ cp config.example.json config.json
 | `email` | `cfmail` / `tempmail` / `cloudflare` |
 | `count` / `threads` | 数量与并发 |
 | `no_oauth` | `true` = 只注册+SSO |
-| `captcha.provider` | `yescaptcha` 或 `local` |
-| `captcha.yescaptcha_key` | YesCaptcha Key |
-| `captcha.solver_url` | 本地过盾地址 |
+| `captcha.provider` | `local`（本地过盾）或 `yescaptcha` |
+| `captcha.yescaptcha_key` | YesCaptcha Key（`provider=yescaptcha` 时） |
+| `captcha.solver_url` | 本地过盾地址（`provider=local` 时） |
 | `cfmail.base_url` | Workers API，如 `https://xxxxx.xyz` |
 | `cfmail.admin_password` | 对应 `ADMIN_PASSWORDS` |
 | `cfmail.domain` | 可选收信域名，空则自动选 |
@@ -92,51 +227,86 @@ python -m grok_register -c /path/to/config.json
 python -m grok_register -n 5 -t 2
 ```
 
----
-
-## 配置（环境变量，可选）
-
+### 环境变量（可选）
 
 | 变量 | 说明 |
 |------|------|
-| `YESCAPTCHA_API_KEY` | YesCaptcha 云打码 Key（`--captcha yescaptcha`，默认） |
+| `YESCAPTCHA_API_KEY` | YesCaptcha 云打码 Key（`--captcha yescaptcha`） |
 | `TEMPMAIL_API_KEY` | [Tempmail.lol](https://tempmail.lol) Key（`-e tempmail`） |
 | `CFMAIL_BASE_URL` | [cloudflare_temp_email](https://github.com/dreamhunter2333/cloudflare_temp_email) API 源站，如 `https://xxxxx.xyz` |
 | `CFMAIL_ADMIN_PASSWORD` | 部署的 `ADMIN_PASSWORDS`（请求头 `x-admin-auth`） |
 | `CFMAIL_DOMAIN` | 可选，收信域名；不填则读 `/open_api/settings` |
 | `CFMAIL_SITE_PASSWORD` | 可选，站点 `PASSWORDS`（`x-custom-auth`） |
-| `GROK_REGISTER_CAPTCHA` | `yescaptcha` / `local` |
+| `GROK_REGISTER_CAPTCHA` | `local` / `yescaptcha` |
 | `GROK_REGISTER_SOLVER_URL` | 本地过盾地址，默认 `http://127.0.0.1:5072` |
 | `HTTPS_PROXY` / `HTTP_PROXY` | 可选代理 |
 | `CLOUDFLARE_*` / `ALIAS_MAIL_DOMAINS` | 仅 `-e cloudflare`（直连 D1）时需要 |
 
-本地过盾可使用上游项目的 `turnstile-solver`（YesCaptcha 兼容 `/createTask` API），本仓库不强制捆绑浏览器栈。
-
 ---
 
-
-## 本地过盾（Turnstile Solver）
+## 4. 用法
 
 ```bash
-# 1) 启动本地过盾（Docker，监听 127.0.0.1:5072）
-./scripts/start-solver.sh
+# 查看帮助
+python -m grok_register -h
+# 或安装后
+grok-register -h
 
-# 2) config.json 使用 local
-# "captcha": { "provider": "local", "solver_url": "http://127.0.0.1:5072" }
+# 注册 1 个号：SSO + Build OAuth（默认）
+python -m grok_register -n 1
 
-# 3) 注册
-python -m grok_register
+# 只要 SSO，不要 OAuth
+python -m grok_register -n 3 -t 2 --no-oauth
 
-# 停止
-./scripts/stop-solver.sh
+# 本地过盾 + JSON 输出
+python -m grok_register -n 1 --captcha local --solver-url http://127.0.0.1:5072 --json
+
+# CF Temp Email（dreamhunter2333）
+python -m grok_register -e cfmail --no-oauth
+
+# 直连 Cloudflare D1（一般不用）
+python -m grok_register -e cloudflare --no-oauth
 ```
 
-首次 `docker compose` 构建会安装 Camoufox，较慢（数分钟）。  
-小机器建议 `TURNSTILE_THREAD=1`。
+### CF Temp Email（Base URL）
+
+`.env` 示例：
+
+```env
+CFMAIL_BASE_URL=https://xxxxx.xyz
+CFMAIL_ADMIN_PASSWORD=你的ADMIN_PASSWORDS
+# CFMAIL_DOMAIN=你的收信域名   # 可选
+# 本地过盾时可不配 YESCAPTCHA_API_KEY
+```
+
+```bash
+python -m grok_register -e cfmail -n 1 --no-oauth
+```
+
+说明：
+
+- Base URL 填 **Workers 后端 API 域名**（如 `https://xxxxx.xyz/`），不要带 `/admin` 页面路径
+- `CFMAIL_ADMIN_PASSWORD` = 部署文档里的 **ADMIN_PASSWORDS**（不是 Cloudflare API Token）
+- 自动化走 `POST /admin/new_address` + 地址 JWT 收信，无需 D1 Token
+
+### 常用参数
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `-n` / `--count` | `1` | 数量 |
+| `-t` / `--threads` | `1` | 并发（注册阶段；OAuth 串行） |
+| `-e` / `--email` | `tempmail` | `tempmail` \| `cfmail` \| `cloudflare` |
+| `--captcha` | env / `yescaptcha` | `yescaptcha` \| `local` |
+| `--solver-url` | env / `http://127.0.0.1:5072` | 过盾 API |
+| `--no-oauth` | off | 只注册 + SSO |
+| `--accounts-output-dir` | `./accounts_output` | 账号 JSON 目录 |
+| `--cliproxyapi-auth-dir` | `./cliproxyapi_auth` | CLIProxyAPI auth 目录 |
+| `--json` | off | 结束后打印完整 JSON |
+| `--no-save` | off | 不落盘 accounts_output |
 
 ---
 
-## WARP 本地代理（可选）
+## 5. WARP 本地代理（可选）
 
 一键安装 Cloudflare WARP，并以 **SOCKS5** 形式提供本机代理（默认 `127.0.0.1:40000`），供 `proxy` / `HTTPS_PROXY` 使用：
 
@@ -172,70 +342,8 @@ export NO_PROXY=localhost,127.0.0.1,::1
 支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。无完整 systemd 的容器会自动回退：`service warp-svc start` → 直接 `nohup warp-svc`。
 
 ---
-## 用法
 
-```bash
-# 查看帮助
-python -m grok_register -h
-# 或安装后
-grok-register -h
-
-# 注册 1 个号：SSO + Build OAuth（默认）
-python -m grok_register -n 1
-
-# 只要 SSO，不要 OAuth
-python -m grok_register -n 3 -t 2 --no-oauth
-
-# 本地过盾 + JSON 输出
-python -m grok_register -n 1 --captcha local --solver-url http://127.0.0.1:5072 --json
-
-# CF Temp Email（dreamhunter2333）
-python -m grok_register -e cfmail --no-oauth
-
-# 直连 Cloudflare D1（一般不用）
-python -m grok_register -e cloudflare --no-oauth
-```
-
-### CF Temp Email（你的 Base URL）
-
-`.env` 示例：
-
-```env
-CFMAIL_BASE_URL=https://xxxxx.xyz
-CFMAIL_ADMIN_PASSWORD=你的ADMIN_PASSWORDS
-# CFMAIL_DOMAIN=你的收信域名   # 可选
-YESCAPTCHA_API_KEY=...
-```
-
-```bash
-python -m grok_register -e cfmail -n 1 --no-oauth
-```
-
-说明：
-- Base URL 填 **Workers 后端 API 域名**（你给的 `https://xxxxx.xyz/`），不要带 `/admin` 页面路径
-- `CFMAIL_ADMIN_PASSWORD` = 部署文档里的 **ADMIN_PASSWORDS**（不是 Cloudflare API Token）
-- 自动化走 `POST /admin/new_address` + 地址 JWT 收信，无需 D1 Token
-
-### 常用参数
-
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `-n` / `--count` | `1` | 数量 |
-| `-t` / `--threads` | `1` | 并发（注册阶段；OAuth 串行） |
-| `-e` / `--email` | `tempmail` | `tempmail` \| `cfmail` \| `cloudflare` |
-| `--captcha` | env / `yescaptcha` | `yescaptcha` \| `local` |
-| `--solver-url` | env / `http://127.0.0.1:5072` | 过盾 API |
-| `--no-oauth` | off | 只注册 + SSO |
-| `--accounts-output-dir` | `./accounts_output` | 账号 JSON 目录 |
-| `--cliproxyapi-auth-dir` | `./cliproxyapi_auth` | CLIProxyAPI auth 目录 |
-| `--json` | off | 结束后打印完整 JSON |
-| `--no-save` | off | 不落盘 accounts_output |
-
----
-
-
-
-## 远程导入 sub2api / CLIProxyAPI
+## 6. 远程导入 sub2api / CLIProxyAPI
 
 在 `config.json` 配置：
 
@@ -287,7 +395,8 @@ python -m grok_register push-cpa ./exports ./cliproxyapi_auth
 > CPA 推送需要 access_token；仅 SSO 的账号请先 `python -m grok_register oauth --from-json ...` 再 push-cpa。
 
 ---
-## 多格式导出
+
+## 7. 多格式导出
 
 注册成功后默认写入 `exports/<格式>/`（可在 `config.json` → `export` 配置）：
 
@@ -319,7 +428,8 @@ python -m grok_register export ./exports/auth/auth.json --export-formats sub2api
 > 完整 OIDC 字段（`key` / `refresh_token` / sub2api oauth credentials）需要 **不要** `--no-oauth`（或 config `no_oauth: false`）。
 
 ---
-## 输出
+
+## 8. 输出
 
 成功时每个账号一份 JSON（`accounts_output/account_<email>_<ts>.json`），字段包括：
 
@@ -338,7 +448,14 @@ grok-register/
 │   ├── cli.py
 │   └── register.py
 ├── xconsole_client/        # 协议客户端（来自 grok-build-auth）
+├── turnstile-solver/       # 本地 Turnstile 过盾（YesCaptcha 兼容 API）
+├── scripts/
+│   ├── start-solver.sh     # 启动过盾（默认本机，--docker 可选）
+│   ├── stop-solver.sh
+│   └── install-warp-proxy.sh
 ├── alias_mail/             # Cloudflare D1 邮箱可选后端
+├── docker-compose.solver.yml
+├── config.example.json
 ├── requirements.txt
 ├── pyproject.toml
 ├── .env.example
@@ -353,7 +470,7 @@ grok-register/
 | `grok-build-auth/run.py` | `grok_register/register.py` + `cli.py` |
 | `scripts/registration_service.py` | **不包含**（HTTP sidecar） |
 | `grok2api/upstream/grok_build_adapter.py` | **不包含**（池化 / Redis / 管理台编排） |
-| `turnstile-solver/` | **不包含**（可用外部进程，`--captcha local`） |
+| `turnstile-solver/` | **已内置**；`./scripts/start-solver.sh` 本机或 Docker 启动，`captcha.provider=local` |
 
 ---
 
@@ -363,6 +480,7 @@ grok-register/
 - 过盾顺序：先 Turnstile，再发邮箱验证码（降低验证码过期）
 - 邮箱提供方：`tempmail` / `cfmail`（cloudflare_temp_email）/ `cloudflare`（D1）（完整版管理台还支持 MoeMail / YYDS / GPTMail 等，未迁入以保持精简）
 - 不自动写 Postgres 号池；结果落本地 JSON / CLIProxyAPI auth 目录
+- 内置 `turnstile-solver`，支持本机进程与 Docker 两种启动方式
 
 ---
 

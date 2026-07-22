@@ -34,7 +34,7 @@
   "accounts_output_dir": "./accounts_output",
   "no_save": false,
   "json": false,
-  "_comment": "本地过盾: provider=local + 先启动 ./scripts/start-solver.sh；云打码: provider=yescaptcha + yescaptcha_key，solver_url 留空",
+  "_comment": "本地过盾: provider=local + 先启动 ./scripts/start-solver.sh（默认本机；--docker 可选）；云打码: provider=yescaptcha + yescaptcha_key",
   "export": {
     "enabled": true,
     "dir": "./exports",
