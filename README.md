@@ -135,6 +135,31 @@ python -m grok_register
 小机器建议 `TURNSTILE_THREAD=1`。
 
 ---
+
+## WARP 本地代理（可选）
+
+一键安装 Cloudflare WARP，并以 **SOCKS5** 形式提供本机代理（默认 `127.0.0.1:40000`），供 `proxy` / `HTTPS_PROXY` 使用：
+
+```bash
+# 仅生成脚本在仓库内；安装需你自行执行（需 root）
+sudo bash scripts/install-warp-proxy.sh
+# 指定端口
+sudo bash scripts/install-warp-proxy.sh --port 40000
+# 状态 / 卸载
+sudo bash scripts/install-warp-proxy.sh --status
+sudo bash scripts/install-warp-proxy.sh --uninstall
+```
+
+安装后示例：
+
+```bash
+export HTTPS_PROXY=socks5://127.0.0.1:40000
+# 或 config.json: "proxy": "socks5://127.0.0.1:40000"
+```
+
+支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。
+
+---
 ## 用法
 
 ```bash
