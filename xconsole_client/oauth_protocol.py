@@ -229,8 +229,8 @@ class ProtocolOAuthClient:
             px = proxy.strip()
             if px.lower().startswith("socks5://"):
                 px = "socks5h://" + px[len("socks5://") :]
-            kwargs["proxies"] = {"http": px, "https": px}
-            kwargs["proxy"] = px  # curl_cffi also accepts proxy=
+            # curl_cffi rejects specifying both proxy= and proxies=
+            kwargs["proxy"] = px
         self._s = creq.Session(**kwargs)
 
     def load_cookies(self, cookies: Dict[str, str]) -> None:

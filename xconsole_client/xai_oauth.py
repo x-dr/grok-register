@@ -700,7 +700,15 @@ def login_with_playwright(
     try:
         launch_kwargs: Dict[str, Any] = {"headless": headless}
         if proxy:
-            launch_kwargs["proxy"] = {"server": proxy}
+            # Chromium rejects curl-style socks5h:// → use socks5:// for Playwright
+            px = str(proxy).strip()
+            low = px.lower()
+            if low.startswith("socks5h://"):
+                px = "socks5://" + px[len("socks5h://") :]
+            elif low.startswith("socks4a://"):
+                px = "socks4://" + px[len("socks4a://") :]
+            if px:
+                launch_kwargs["proxy"] = {"server": px}
 
         with sync_playwright() as p:
             browser = p.chromium.launch(**launch_kwargs)
@@ -832,7 +840,10 @@ def complete_build_oauth(
             )
         except Exception as exc:
             errors.append(f"protocol OAuth failed: {exc}")
-            print(f"Protocol OAuth failed ({exc})")
+            short = " ".join(str(exc).split())
+            if len(short) > 160:
+                short = short[:159] + "…"
+            print(f"Protocol OAuth failed ({short})")
 
     try:
         return login_with_playwright(
@@ -850,7 +861,12 @@ def complete_build_oauth(
         errors.append(f"playwright OAuth failed: {auto_err}")
         if not interactive_fallback:
             raise RuntimeError("; ".join(errors)) from auto_err
-        print(f"Playwright OAuth failed ({auto_err}); falling back to interactive browser login...")
+        _short = " ".join(str(auto_err).split())
+        if "Call log:" in _short:
+            _short = _short.split("Call log:", 1)[0].strip()
+        if len(_short) > 160:
+            _short = _short[:159] + "…"
+        print(f"Playwright OAuth failed ({_short}); falling back to interactive browser login...")
         return login_with_browser(
             timeout=max(timeout, 300.0),
             port=port,

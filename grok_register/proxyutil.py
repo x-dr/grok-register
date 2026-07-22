@@ -198,3 +198,47 @@ def requests_kwargs_for_proxy(url: str | None = None) -> dict[str, Any]:
     p = normalize_proxy(url) if url is not None else resolve_proxy_from_env()
     d = proxies_dict(p)
     return {"proxies": d} if d else {}
+
+
+def playwright_proxy(url: str | None) -> dict[str, str] | None:
+    """Build Playwright ``proxy`` launch option from a proxy URL.
+
+    Chromium does not accept curl-style ``socks5h://`` (remote DNS). Convert to
+    ``socks5://`` so Playwright can use the same SOCKS endpoint.
+    """
+    p = normalize_proxy(url, prefer_socks5h=False) if url else ""
+    if not p:
+        return None
+    low = p.lower()
+    if low.startswith("socks5h://"):
+        p = "socks5://" + p[len("socks5h://") :]
+    elif low.startswith("socks4a://"):
+        p = "socks4://" + p[len("socks4a://") :]
+    # Playwright expects server without credentials embedded ideally; keep as-is
+    # if user:pass@host is present (Chromium supports it in server URL).
+    return {"server": p}
+
+
+def shorten_error(msg: object, *, max_len: int = 160) -> str:
+    """One-line error for console / compact logs (drop Playwright call logs & long URLs)."""
+    import re
+
+    s = str(msg or "").replace(chr(13), " ").strip()
+    if not s:
+        return "?"
+    # Drop Playwright "Call log:" tails
+    for marker in (chr(10) + "Call log:", chr(10) + "Call log", "Call log:"):
+        if marker in s:
+            s = s.split(marker, 1)[0].strip()
+    # Collapse whitespace / newlines
+    s = " ".join(s.split())
+    # Strip long OAuth authorize query strings
+    s = re.sub(
+        r"https?://auth\.x\.ai/oauth2/authorize\S*",
+        "https://auth.x.ai/oauth2/authorize?…",
+        s,
+    )
+    s = re.sub(r"https?://\S{80,}", lambda m: m.group(0)[:60] + "…", s)
+    if len(s) > max_len:
+        s = s[: max_len - 1] + "…"
+    return s

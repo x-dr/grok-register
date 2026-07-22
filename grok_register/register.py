@@ -483,11 +483,22 @@ def register_one(
                     _log(f"Build OAuth OK  access={tok}...  cliproxy={name}")
                 except Exception as e:  # noqa: BLE001
                     oauth_errors.append(str(e))
-                    _log(f"Build OAuth failed: {e}")
+                    try:
+                        from .proxyutil import shorten_error
+                        _log(f"Build OAuth failed: {shorten_error(e)}")
+                    except Exception:
+                        _log(f"Build OAuth failed: {str(e)[:160]}")
 
             if not result.get("oauth_access_token"):
                 # Keep SSO success; surface OAuth error without discarding account
-                result["error"] = "; ".join(oauth_errors) or "OAuth failed"
+                full_err = "; ".join(oauth_errors) or "OAuth failed"
+                try:
+                    from .proxyutil import shorten_error
+                    result["error"] = shorten_error(full_err, max_len=200)
+                    result["error_detail"] = full_err[:2000]
+                except Exception:
+                    result["error"] = full_err[:200]
+                    result["error_detail"] = full_err[:2000]
                 _log(f"OAuth failed (SSO kept): {result['error']}")
         else:
             _log("OAuth skipped (--no-oauth)")
@@ -500,14 +511,20 @@ def register_one(
         return result
 
     except Exception as e:  # noqa: BLE001
-        _log(f"ERROR: {e}")
+        try:
+            from .proxyutil import shorten_error
+            short = shorten_error(e, max_len=200)
+        except Exception:
+            short = str(e)[:200]
+        _log(f"ERROR: {short}")
         return {
             "email": email,
             "password": password,
             "sso": sso,
             "oauth_access_token": None,
             "cliproxyapi_auth": None,
-            "error": str(e),
+            "error": short,
+            "error_detail": str(e)[:2000],
         }
     finally:
         try:

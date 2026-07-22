@@ -566,16 +566,66 @@ def main(argv: list[str] | None = None) -> int:
         flush=True,
     )
     print(f"{'=' * 50}", flush=True)
-    # 完成设定数量后不逐条列出成功账号，仅摘要；失败仍打印便于排查
+    # 完成设定数量后不逐条列出成功账号；失败只打印短摘要，详细写入错误日志
+    from .proxyutil import shorten_error
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+
     for r in fail:
         email = r.get("email") or "?"
+        short = shorten_error(r.get("error") or "?", max_len=120)
         if r.get("sso") and r.get("error"):
-            print(f"  {email:40s}  SSO-ok OAuth-FAIL: {r.get('error')}", flush=True)
+            print(f"  {email:40s}  SSO-ok OAuth-FAIL: {short}", flush=True)
         else:
-            print(f"  {email:40s}  FAIL: {r.get('error', '?')}", flush=True)
+            print(f"  {email:40s}  FAIL: {short}", flush=True)
+
+    if fail:
+        err_dir = _Path(args.export_dir or "exports") / "errors"
+        err_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        err_path = err_dir / f"errors-{ts}.log"
+        err_rolling = err_dir / "errors.log"
+        lines: list[str] = []
+        lines.append(f"# grok-register error log  {ts}")
+        lines.append(
+            f"# total={len(results)}  sso_ok={len(ok_sso)}  "
+            f"build_ok={len(ok_build)}  fail={len(fail)}"
+        )
+        lines.append("")
+        for r in fail:
+            email = r.get("email") or "?"
+            kind = "SSO-ok OAuth-FAIL" if (r.get("sso") and r.get("error")) else "FAIL"
+            short = shorten_error(r.get("error") or "?", max_len=200)
+            detail = r.get("error_detail") or r.get("error") or ""
+            detail_short = shorten_error(detail, max_len=300)
+            lines.append(f"[{kind}] {email}")
+            lines.append(f"  error: {short}")
+            if detail_short and detail_short != short:
+                lines.append(f"  detail: {detail_short}")
+            if r.get("sso"):
+                lines.append("  sso: yes")
+            if r.get("account_bundle"):
+                lines.append(f"  bundle: {r.get('account_bundle')}")
+            lines.append("")
+        body = chr(10).join(lines) + chr(10)
+        err_path.write_text(body, encoding="utf-8")
+        err_rolling.write_text(body, encoding="utf-8")
+        print(f"{chr(10)}Error log → {err_path}", flush=True)
+        print(f"  error_rolling: {err_rolling}", flush=True)
 
     if args.json_out:
-        print(json.dumps(results, ensure_ascii=False, indent=2), flush=True)
+        # avoid dumping full multi-KB errors in stdout
+        slim = []
+        for r in results:
+            if not isinstance(r, dict):
+                slim.append(r)
+                continue
+            row = dict(r)
+            if row.get("error"):
+                row["error"] = shorten_error(row.get("error"), max_len=200)
+            row.pop("error_detail", None)
+            slim.append(row)
+        print(json.dumps(slim, ensure_ascii=False, indent=2), flush=True)
 
     # Multi-format export for successful (and partial) rows
     if not args.no_export and (ok_sso or ok_build or any(r.get("email") for r in results)):
