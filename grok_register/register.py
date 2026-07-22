@@ -229,6 +229,7 @@ def register_one(
     cliproxyapi_base_url: str = CLIPROXYAPI_GROK_BASE_URL,
     accounts_output_dir: Optional[str | Path] = None,
     proxy: str | None = None,
+    enable_nsfw: bool = True,
     log: LogFn | None = None,
     progress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -365,8 +366,36 @@ def register_one(
             "oauth_record": None,
             "cliproxyapi_auth": None,
             "build_base_url": cliproxyapi_base_url,
+            "nsfw_enabled": False,
+            "nsfw_error": None,
             "error": None,
         }
+
+        # 5b. optional NSFW feature enable (non-blocking)
+        if enable_nsfw:
+            _log("enable NSFW…")
+            try:
+                from .nsfw import enable_nsfw_for_sso
+
+                nsfw_ok, nsfw_msg = enable_nsfw_for_sso(
+                    sso,
+                    proxy=proxy,
+                    log=_log,
+                )
+            except Exception as e:  # noqa: BLE001
+                nsfw_ok, nsfw_msg = False, str(e)
+            if nsfw_ok:
+                result["nsfw_enabled"] = True
+                result["nsfw_error"] = None
+                _log(f"NSFW enabled: {nsfw_msg}")
+            else:
+                result["nsfw_enabled"] = False
+                result["nsfw_error"] = nsfw_msg
+                _log(f"NSFW not enabled (account kept): {nsfw_msg}")
+        else:
+            result["nsfw_enabled"] = False
+            result["nsfw_error"] = "skipped"
+            _log("NSFW skipped (--no-enable-nsfw)")
 
         # 6. optional OAuth tokens for auth.json / sub2api / CLIProxyAPI
         # Prefer SSO device-flow (same as grokcli-2api) — no Turnstile/Playwright.

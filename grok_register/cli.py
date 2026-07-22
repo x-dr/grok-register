@@ -100,6 +100,19 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
         default=False,
         help="强制走 Build OAuth（覆盖 config.json 里 no_oauth: true）",
     )
+    p.set_defaults(enable_nsfw=None)
+    p.add_argument(
+        "--enable-nsfw",
+        dest="enable_nsfw",
+        action="store_true",
+        help="注册拿到 SSO 后开启 NSFW（默认开启；可用 config enable_nsfw）",
+    )
+    p.add_argument(
+        "--no-enable-nsfw",
+        dest="enable_nsfw",
+        action="store_false",
+        help="跳过注册后开启 NSFW",
+    )
     p.add_argument(
         "--cliproxyapi-auth-dir",
         default=default_auth,
@@ -484,12 +497,17 @@ def main(argv: list[str] | None = None) -> int:
         do_oauth = False
     else:
         do_oauth = not bool(defaults.get("no_oauth", False))
+    if args.enable_nsfw is None:
+        enable_nsfw = bool(defaults.get("enable_nsfw", True))
+    else:
+        enable_nsfw = bool(args.enable_nsfw)
     out_dir = None if args.no_save else args.accounts_output_dir
 
     print(
         f"grok-register v{__version__}: {args.count} account(s), "
         f"threads={min(args.threads, args.count)}, email={args.email}, "
-        f"captcha={provider}, oauth={'on' if do_oauth else 'off'}",
+        f"captcha={provider}, oauth={'on' if do_oauth else 'off'}, "
+        f"nsfw={'on' if enable_nsfw else 'off'}",
         flush=True,
     )
     if cfg_path:
@@ -553,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
         cliproxyapi_base_url=args.cliproxyapi_base_url,
         accounts_output_dir=out_dir,
         proxy=args.proxy,
+        enable_nsfw=enable_nsfw,
     )
 
     ok_sso = [r for r in results if r.get("sso")]

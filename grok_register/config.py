@@ -223,6 +223,8 @@ def cli_defaults_from_config(data: dict[str, Any]) -> dict[str, Any]:
         out["no_oauth"] = bool(data.get("no_oauth"))
     if "oauth" in data and data.get("oauth") is False:
         out["no_oauth"] = True
+    if "enable_nsfw" in data:
+        out["enable_nsfw"] = bool(data.get("enable_nsfw"))
 
     oauth = data.get("oauth") if isinstance(data.get("oauth"), dict) else {}
     set_if(

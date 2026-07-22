@@ -6,7 +6,8 @@
 
 1. 协议注册（邮箱验证 + Turnstile + create_account）
 2. SSO 提取
-3. 可选 Grok Build OAuth → CLIProxyAPI 兼容 auth JSON
+3. 可选开启 NSFW（ToS + 生日 + `always_show_nsfw_content`；默认开启，失败不阻断）
+4. 可选 Grok Build OAuth → CLIProxyAPI 兼容 auth JSON
 
 > 使用前请阅读 [`NOTICE`](NOTICE)。本工具按 AS-IS 提供，仅供研究与自用；请遵守 x.ai / 第三方服务条款与当地法律。
 
@@ -203,6 +204,7 @@ cp config.example.json config.json
 | `email` | `cfmail` / `tempmail` / `cloudflare` |
 | `count` / `threads` | 数量与并发 |
 | `no_oauth` | `true` = 只注册+SSO |
+| `enable_nsfw` | 注册拿到 SSO 后是否开启 NSFW（默认 `true`；失败不阻断保存） |
 | `captcha.provider` | `local`（本地过盾）或 `yescaptcha` |
 | `captcha.yescaptcha_key` | YesCaptcha Key（`provider=yescaptcha` 时） |
 | `captcha.solver_url` | 本地过盾地址（`provider=local` 时） |
@@ -257,6 +259,9 @@ python -m grok_register -n 1
 
 # 只要 SSO，不要 OAuth
 python -m grok_register -n 3 -t 2 --no-oauth
+
+# 跳过注册后开启 NSFW
+python -m grok_register -n 1 --no-oauth --no-enable-nsfw
 
 # 本地过盾 + JSON 输出
 python -m grok_register -n 1 --captcha local --solver-url http://127.0.0.1:5072 --json
