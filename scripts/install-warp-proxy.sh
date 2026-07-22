@@ -414,6 +414,7 @@ WARP SOCKS5 代理已配置
 常用命令:
 
   sudo bash scripts/install-warp-proxy.sh --status
+  sudo bash scripts/rotate-warp-ip.sh          # 换出口 IP（默认端口同上 40000）
   warp-cli status
   warp-cli disconnect
   warp-cli connect

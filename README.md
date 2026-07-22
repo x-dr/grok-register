@@ -318,6 +318,10 @@ sudo bash scripts/install-warp-proxy.sh --port 40000
 # 状态 / 卸载
 sudo bash scripts/install-warp-proxy.sh --status
 sudo bash scripts/install-warp-proxy.sh --uninstall
+
+# 更换 WARP 出口 IP（重新注册；默认仍监听 40000，与注册机配置一致）
+sudo bash scripts/rotate-warp-ip.sh
+sudo bash scripts/rotate-warp-ip.sh --port 40000 --max-tries 8
 ```
 
 安装后示例（推荐 **socks5h**，DNS 走代理；`socks5://` 也会被自动规范化为 `socks5h://`）：
@@ -340,6 +344,8 @@ export NO_PROXY=localhost,127.0.0.1,::1
 4. 本地 captcha solver（`127.0.0.1:5072`）与局域网 sub2api 会绕过代理
 
 支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。无完整 systemd 的容器会自动回退：`service warp-svc start` → 直接 `nohup warp-svc`。
+
+**换 IP 说明：** `rotate-warp-ip.sh` 默认端口为 **40000**（与 `install-warp-proxy.sh` / `config.json` 的 `proxy` 一致）。流程为 disconnect → `registration delete` → 重启 `warp-svc` → 重新注册 → `mode proxy` + `proxy port` → connect。请勿使用旧版默认 `4000` 的换 IP 脚本，否则注册机会连不上代理。
 
 ---
 
@@ -452,7 +458,8 @@ grok-register/
 ├── scripts/
 │   ├── start-solver.sh     # 启动过盾（默认本机，--docker 可选）
 │   ├── stop-solver.sh
-│   └── install-warp-proxy.sh
+│   ├── install-warp-proxy.sh
+│   └── rotate-warp-ip.sh
 ├── alias_mail/             # Cloudflare D1 邮箱可选后端
 ├── docker-compose.solver.yml
 ├── config.example.json
