@@ -201,7 +201,7 @@ cp config.example.json config.json
 
 | 字段 | 说明 |
 |------|------|
-| `email` | `cfmail` / `tempmail` / `cloudflare` |
+| `email` | `cfmail` / `tempmail` / `cloudflare` / `22do` |
 | `count` / `threads` | 数量与并发 |
 | `no_oauth` | `true` = 只注册+SSO |
 | `enable_nsfw` | 注册拿到 SSO 后是否开启 NSFW（默认 `true`；失败不阻断保存） |
@@ -212,6 +212,7 @@ cp config.example.json config.json
 | `cfmail.admin_password` | 对应 `ADMIN_PASSWORDS` |
 | `cfmail.domain` | 可选收信域名，空则自动选 |
 | `cfmail.site_password` | 可选，站点 `PASSWORDS` |
+| `22do` | 无需额外配置；`-e 22do` 使用 22.do Outlook/Hotmail 临时邮箱 |
 | `proxy` | 可选 HTTP/HTTPS/SOCKS5 代理（如 `socks5h://127.0.0.1:40000`） |
 | `tempmail.api_key` | `-e tempmail` 时 |
 | `cloudflare.*` | 仅 D1 后端时 |
@@ -268,6 +269,8 @@ python -m grok_register -n 1 --captcha local --solver-url http://127.0.0.1:5072 
 
 # CF Temp Email（dreamhunter2333）
 python -m grok_register -e cfmail --no-oauth
+# 或 22.do Outlook 临时邮箱（无需 API Key）
+python -m grok_register -e 22do --no-oauth
 
 # 直连 Cloudflare D1（一般不用）
 python -m grok_register -e cloudflare --no-oauth
@@ -300,7 +303,7 @@ python -m grok_register -e cfmail -n 1 --no-oauth
 |------|------|------|
 | `-n` / `--count` | `1` | 数量 |
 | `-t` / `--threads` | `1` | 并发（注册阶段；OAuth 串行） |
-| `-e` / `--email` | `tempmail` | `tempmail` \| `cfmail` \| `cloudflare` |
+| `-e` / `--email` | `tempmail` | `tempmail` \| `cfmail` \| `cloudflare` \| `22do` |
 | `--captcha` | env / `yescaptcha` | `yescaptcha` \| `local` |
 | `--solver-url` | env / `http://127.0.0.1:5072` | 过盾 API |
 | `--no-oauth` | off | 只注册 + SSO |
@@ -490,7 +493,7 @@ grok-register/
 
 - **纯 CLI**，无 FastAPI 内网服务、无 Go 管理台 facade
 - 过盾顺序：先 Turnstile，再发邮箱验证码（降低验证码过期）
-- 邮箱提供方：`tempmail` / `cfmail`（cloudflare_temp_email）/ `cloudflare`（D1）（完整版管理台还支持 MoeMail / YYDS / GPTMail 等，未迁入以保持精简）
+- 邮箱提供方：`tempmail` / `cfmail`（cloudflare_temp_email）/ `cloudflare`（D1）/ `22do`（22.do Outlook 临时邮箱，无需 API Key）（完整版管理台还支持 MoeMail / YYDS / GPTMail 等，未迁入以保持精简）
 - 不自动写 Postgres 号池；结果落本地 JSON / CLIProxyAPI auth 目录
 - 内置 `turnstile-solver`，支持本机进程与 Docker 两种启动方式
 

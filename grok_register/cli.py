@@ -68,9 +68,9 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
     p.add_argument(
         "-e",
         "--email",
-        choices=["tempmail", "cfmail", "cloudflare"],
+        choices=["tempmail", "cfmail", "cloudflare", "22do"],
         default=str(d.get("email") or "tempmail"),
-        help="邮箱: tempmail | cfmail(cloudflare_temp_email HTTP) | cloudflare(D1)",
+        help="邮箱: tempmail | cfmail(cloudflare_temp_email HTTP) | cloudflare(D1) | 22do(22.do Outlook 临时邮箱)",
     )
     p.add_argument(
         "--captcha",
@@ -526,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
             f"domain={os.environ.get('CFMAIL_DOMAIN') or '(auto)'}",
             flush=True,
         )
+    elif args.email == "22do":
+        print("  email: 22.do Outlook temp mailbox (no API key)", flush=True)
     if do_oauth:
         print(f"  cliproxyapi-auth-dir: {args.cliproxyapi_auth_dir}", flush=True)
         print(f"  build-base-url:       {args.cliproxyapi_base_url}", flush=True)

@@ -196,9 +196,23 @@ def make_email_provider(backend: str):
         )
         return address, receiver
 
+    # 22.do Outlook temporary mailbox (no API key)
+    if backend in {"22do", "22.do", "do22", "outlook22", "hotmail22"}:
+        from . import email_22do as d22
+        from .proxyutil import resolve_proxy_from_env
+
+        proxy = resolve_proxy_from_env() or None
+        box = d22.create_mailbox(proxy=proxy)
+        receiver = d22.Do22Receiver(
+            email=box["email"],
+            token=box["token"],
+            proxy=proxy,
+        )
+        return box["email"], receiver
+
     raise ValueError(
         f"unknown email backend: {backend} "
-        f"(tempmail|cfmail|cloudflare)"
+        f"(tempmail|cfmail|cloudflare|22do)"
     )
 
 

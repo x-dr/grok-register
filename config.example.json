@@ -27,6 +27,10 @@
     "d1_db_id": "",
     "domains": ""
   },
+  "22do": {
+    "_comment": "无需 API Key；可选 proxy 走全局 proxy 字段",
+    "prefer_hotmail": true
+  },
   "oauth": {
     "cliproxyapi_auth_dir": "./cliproxyapi_auth",
     "cliproxyapi_base_url": "https://cli-chat-proxy.grok.com/v1",
@@ -53,7 +57,7 @@
     "email": "admin@example.com",
     "password": "your-password",
     "group_id": null,
-    "group_name": "grok-register",
+    "group_name": "grok-register_22do",
     "auto_create_group": true,
     "auto_push_on_register": false,
     "concurrency": 4,
