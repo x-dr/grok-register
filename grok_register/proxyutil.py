@@ -226,16 +226,42 @@ def shorten_error(msg: object, *, max_len: int = 160) -> str:
     s = str(msg or "").replace(chr(13), " ").strip()
     if not s:
         return "?"
-    # Drop Playwright "Call log:" tails
     for marker in (chr(10) + "Call log:", chr(10) + "Call log", "Call log:"):
         if marker in s:
             s = s.split(marker, 1)[0].strip()
-    # Collapse whitespace / newlines
     s = " ".join(s.split())
-    # Strip long OAuth authorize query strings
+
+    low = s.lower()
+    tags: list[str] = []
+    if "device-flow returned no access_token" in low or low.startswith("device-flow:"):
+        tags.append("device-flow-empty")
+    if "cannot specify both" in low and "proxy" in low:
+        tags.append("proxy-both")
+    if "err_no_supported_proxies" in low:
+        tags.append("playwright-proxy")
+    if "redirect loop" in low:
+        tags.append("oauth-redirect-loop")
+    if "timed out waiting for oauth" in low or ("timeout" in low and "oauth" in low):
+        tags.append("oauth-timeout")
+    if "invalid-credentials" in low or "invalid credentials" in low:
+        tags.append("invalid-credentials")
+    if tags and (
+        "protocol oauth failed" in low
+        or "playwright oauth failed" in low
+        or "device-flow" in low
+    ):
+        compact = "OAuth-FAIL: " + "+".join(tags)
+        if len(compact) <= max_len:
+            return compact
+
     s = re.sub(
         r"https?://auth\.x\.ai/oauth2/authorize\S*",
         "https://auth.x.ai/oauth2/authorize?…",
+        s,
+    )
+    s = re.sub(
+        r"https?://accounts\.x\.ai/sign-in\S*",
+        "https://accounts.x.ai/sign-in?…",
         s,
     )
     s = re.sub(r"https?://\S{80,}", lambda m: m.group(0)[:60] + "…", s)

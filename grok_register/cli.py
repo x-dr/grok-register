@@ -143,7 +143,7 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
         action="store_true",
         dest="json_out",
         default=bool(d.get("json_out", False)),
-        help="结束时向 stdout 打印完整 JSON 结果列表",
+        help="结束时把结果 JSON 写入 exports/results/（默认不打印到终端）",
     )
     p.add_argument(
         "--proxy",
@@ -573,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for r in fail:
         email = r.get("email") or "?"
-        short = shorten_error(r.get("error") or "?", max_len=120)
+        short = shorten_error(r.get("error") or "?", max_len=80)
         if r.get("sso") and r.get("error"):
             print(f"  {email:40s}  SSO-ok OAuth-FAIL: {short}", flush=True)
         else:
@@ -614,18 +614,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  error_rolling: {err_rolling}", flush=True)
 
     if args.json_out:
-        # avoid dumping full multi-KB errors in stdout
-        slim = []
-        for r in results:
-            if not isinstance(r, dict):
-                slim.append(r)
-                continue
-            row = dict(r)
-            if row.get("error"):
-                row["error"] = shorten_error(row.get("error"), max_len=200)
-            row.pop("error_detail", None)
-            slim.append(row)
-        print(json.dumps(slim, ensure_ascii=False, indent=2), flush=True)
+        # Write full results to disk; do NOT dump secrets (tokens/passwords) to the terminal.
+        res_dir = _Path(args.export_dir or "exports") / "results"
+        res_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        res_path = res_dir / f"results-{ts}.json"
+        res_rolling = res_dir / "results.json"
+        payload = json.dumps(results, ensure_ascii=False, indent=2)
+        res_path.write_text(payload, encoding="utf-8")
+        res_rolling.write_text(payload, encoding="utf-8")
+        print(f"Results JSON → {res_path}", flush=True)
+        print(f"  results_rolling: {res_rolling}", flush=True)
 
     # Multi-format export for successful (and partial) rows
     if not args.no_export and (ok_sso or ok_build or any(r.get("email") for r in results)):
