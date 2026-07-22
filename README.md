@@ -157,7 +157,7 @@ export HTTPS_PROXY=socks5://127.0.0.1:40000
 # 或 config.json: "proxy": "socks5://127.0.0.1:40000"
 ```
 
-支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。
+支持 Debian/Ubuntu 与 RHEL/CentOS/Fedora 系（官方 `cloudflare-warp` 包 + `warp-cli` proxy 模式）。无完整 systemd 的容器会自动回退：`service warp-svc start` → 直接 `nohup warp-svc`。
 
 ---
 ## 用法

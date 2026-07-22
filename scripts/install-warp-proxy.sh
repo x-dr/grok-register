@@ -8,6 +8,11 @@
 #   bash scripts/install-warp-proxy.sh --status     # 仅查看状态
 #   bash scripts/install-warp-proxy.sh --uninstall  # 卸载 WARP
 #
+# 服务启动顺序（兼容无完整 systemd 的容器）:
+#   1) systemctl（若真正可用）
+#   2) service warp-svc start
+#   3) nohup 直接后台运行 warp-svc
+#
 # 安装完成后示例:
 #   export HTTPS_PROXY=socks5://127.0.0.1:40000
 #   # 或 config.json: "proxy": "socks5://127.0.0.1:40000"
@@ -107,8 +112,7 @@ show_status() {
 uninstall_warp() {
   need_root
   log "停止 WARP..."
-  systemctl stop warp-svc 2>/dev/null || true
-  systemctl disable warp-svc 2>/dev/null || true
+  stop_warp_service || true
 
   detect_os
   if has_cmd apt-get && { [[ "$OS_ID" == "debian" || "$OS_ID" == "ubuntu" ]] || [[ "$OS_LIKE" == *debian* ]]; }; then
@@ -173,14 +177,184 @@ REPO
   fi
 }
 
+# 判断 systemctl 是否真正可用（很多容器里 systemctl 是 stub）
+systemd_usable() {
+  has_cmd systemctl || return 1
+  # stub 常见输出含 "is not running in this container"
+  local out
+  out="$(systemctl is-system-running 2>&1 || true)"
+  case "$out" in
+    *not\ running*|*Failed\ to\ connect*|*System\ has\ not\ been\ booted*)
+      return 1
+      ;;
+  esac
+  # running / degraded / starting 等视为可用
+  case "$out" in
+    running|degraded|starting|initializing|maintenance)
+      return 0
+      ;;
+  esac
+  # 再试一次 list-units；stub 通常会失败或打印提示
+  if systemctl list-units --type=service >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+find_warp_svc_bin() {
+  local c
+  for c in /bin/warp-svc /usr/bin/warp-svc /usr/local/bin/warp-svc; do
+    if [[ -x "$c" ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+  if has_cmd warp-svc; then
+    command -v warp-svc
+    return 0
+  fi
+  return 1
+}
+
+WARP_PID_FILE="${WARP_PID_FILE:-/var/run/warp-svc.pid}"
+WARP_LOG_FILE="${WARP_LOG_FILE:-/var/log/warp-svc.log}"
+
+warp_svc_running() {
+  if has_cmd pgrep && pgrep -x warp-svc >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -f "$WARP_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$WARP_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+start_warp_svc_direct() {
+  local bin
+  bin="$(find_warp_svc_bin)" || die "找不到 warp-svc 可执行文件"
+  if warp_svc_running; then
+    log "warp-svc 已在运行"
+    return 0
+  fi
+  mkdir -p "$(dirname "$WARP_PID_FILE")" "$(dirname "$WARP_LOG_FILE")"
+  log "无可用 systemd，直接后台启动: $bin"
+  # 官方 daemon；无 systemd 时 nohup 常驻
+  nohup "$bin" >>"$WARP_LOG_FILE" 2>&1 &
+  echo $! >"$WARP_PID_FILE"
+  sleep 1
+  if ! warp_svc_running; then
+    # 部分版本会自行 daemonize，父进程立刻退出；再用进程名判断
+    sleep 2
+  fi
+  if ! warp_svc_running && ! wait_warp_ready; then
+    err "直接启动失败，最近日志:"
+    tail -n 40 "$WARP_LOG_FILE" 2>/dev/null || true
+    return 1
+  fi
+  return 0
+}
+
+stop_warp_service() {
+  if systemd_usable; then
+    systemctl stop warp-svc 2>/dev/null || true
+    systemctl disable warp-svc 2>/dev/null || true
+  fi
+  if has_cmd service; then
+    service warp-svc stop 2>/dev/null || true
+  fi
+  if [[ -f "$WARP_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$WARP_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "${pid:-}" ]]; then
+      kill "$pid" 2>/dev/null || true
+      rm -f "$WARP_PID_FILE"
+    fi
+  fi
+  if has_cmd pkill; then
+    pkill -x warp-svc 2>/dev/null || true
+  fi
+}
+
+try_start_via_service() {
+  has_cmd service || return 1
+  # 捕获 stub/错误输出，避免误判成功
+  local out
+  out="$(service warp-svc start 2>&1)" || {
+    [[ -n "$out" ]] && log "service: $out"
+    return 1
+  }
+  if echo "$out" | grep -qiE 'not running in this container|unrecognized service|not found'; then
+    log "service 不可用: $out"
+    return 1
+  fi
+  [[ -n "$out" ]] && log "service: $out"
+  return 0
+}
+
+try_start_via_systemctl() {
+  systemd_usable || return 1
+  log "尝试 systemctl 启动 warp-svc"
+  systemctl enable warp-svc >/dev/null 2>&1 || true
+  local out rc=0
+  out="$(systemctl start warp-svc 2>&1)" || rc=$?
+  if echo "$out" | grep -qiE 'not running in this container|Failed to connect to bus|System has not been booted'; then
+    log "systemctl 在此环境不可用，将回退"
+    return 1
+  fi
+  if [[ $rc -ne 0 ]]; then
+    [[ -n "$out" ]] && log "systemctl start 失败: $out"
+    return 1
+  fi
+  return 0
+}
+
 ensure_service() {
   need_root
-  if has_cmd systemctl; then
-    systemctl enable --now warp-svc
-  else
-    die "需要 systemd（warp-svc）"
+  log "启动 warp-svc..."
+
+  # 已在跑则跳过
+  if wait_warp_ready; then
+    log "warp-svc 已在运行"
+    return 0
   fi
-  wait_warp_ready || die "warp-svc 启动超时，请检查: systemctl status warp-svc"
+
+  local started=0
+  if try_start_via_systemctl; then
+    started=1
+  elif try_start_via_service; then
+    log "已通过 service 启动 warp-svc"
+    started=1
+  elif start_warp_svc_direct; then
+    log "已直接后台启动 warp-svc"
+    started=1
+  fi
+
+  if [[ "$started" -ne 1 ]]; then
+    die "无法启动 warp-svc（systemctl / service / 直接启动均失败）"
+  fi
+
+  if wait_warp_ready; then
+    log "warp-svc 已就绪"
+    return 0
+  fi
+
+  # systemctl/service 可能“假成功”，再强制直接拉起一次
+  log "服务未就绪，强制直接启动 warp-svc 重试..."
+  start_warp_svc_direct || true
+  if wait_warp_ready; then
+    log "warp-svc 已就绪（直接启动）"
+    return 0
+  fi
+
+  err "warp-svc 启动超时"
+  systemd_usable && systemctl status warp-svc --no-pager 2>/dev/null || true
+  has_cmd service && service warp-svc status 2>/dev/null || true
+  tail -n 40 "$WARP_LOG_FILE" 2>/dev/null || true
+  die "请检查日志后重试。容器内可手动: service warp-svc start 或 nohup warp-svc &"
 }
 
 configure_proxy_mode() {
