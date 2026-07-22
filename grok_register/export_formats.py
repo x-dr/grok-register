@@ -5,7 +5,8 @@ Formats (written under ``export_dir/<format>/``):
   - sub2api    : sub2api import ``{"type":"sub2api-data","accounts":[...]}``
   - cliproxyapi: CLIProxyAPI per-file ``xai-<email>.json`` + optional bundle
   - bundle     : one combined JSON per account (accounts_output style)
-  - sso        : simple list ``[{email,password,sso}, ...]``
+  - sso        : simple list ``[{email,password,sso}, ...]`` plus
+                 ``sso-list-<ts>.txt`` (email----password----sso) and ``sso_<ts>.txt`` (SSO only)
 """
 
 from __future__ import annotations
@@ -443,7 +444,7 @@ def export_results(
         cliproxyapi/cliproxyapi-bundle-<ts>.json
         cliproxyapi/auth/xai-*.json          (when cliproxyapi_auth_dir is omitted)
         bundle/account_*.json                (when accounts_output_dir is omitted)
-        sso/sso-list-<ts>.json|.txt
+        sso/sso-list-<ts>.json|.txt, sso/sso_<ts>.txt
     """
     wanted = [f.strip().lower() for f in (formats or list(ALL_FORMATS)) if f and f.strip()]
     wanted = [f for f in wanted if f in ALL_FORMATS]
@@ -529,16 +530,27 @@ def export_results(
         payload = build_sso_list(rows)
         sso_dir = _format_dir(out_dir, "sso")
         path = _write_json(sso_dir / f"sso-list-{ts}.json", payload)
-        # also plaintext convenience
+        # plaintext: email----password----sso
         txt = sso_dir / f"sso-list-{ts}.txt"
-        lines = []
+        list_lines = []
+        pure_sso_lines = []
         for item in payload:
-            lines.append(
-                f"{item.get('email','')}\t{item.get('password','')}\t{item.get('sso','')}"
-            )
-        txt.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            email = item.get("email") or ""
+            password = item.get("password") or ""
+            sso = item.get("sso") or ""
+            list_lines.append(f"{email}----{password}----{sso}")
+            if sso:
+                pure_sso_lines.append(sso)
+        txt.write_text("\n".join(list_lines) + ("\n" if list_lines else ""), encoding="utf-8")
+        # pure SSO tokens only: one token per line
+        pure_txt = sso_dir / f"sso_{ts}.txt"
+        pure_txt.write_text(
+            "\n".join(pure_sso_lines) + ("\n" if pure_sso_lines else ""),
+            encoding="utf-8",
+        )
         written["files"]["sso"] = str(path)
         written["files"]["sso_txt"] = str(txt)
+        written["files"]["sso_pure_txt"] = str(pure_txt)
         written["files"]["sso_dir"] = str(sso_dir)
 
     return written

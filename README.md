@@ -297,7 +297,7 @@ python -m grok_register push-cpa ./exports ./cliproxyapi_auth
 | `sub2api` | `exports/sub2api/sub2api-data-<ts>.json` | sub2api「导入数据」：`type=sub2api-data` |
 | `cliproxyapi` | `exports/cliproxyapi/cliproxyapi-bundle-*.json` + `cliproxyapi_auth/xai-*.json`（或 `exports/cliproxyapi/auth/`） | CLIProxyAPI 单账号 auth |
 | `bundle` | `accounts_output/account_*.json`（或 `exports/bundle/`） | 完整原始结果 |
-| `sso` | `exports/sso/sso-list-*.json` / `.txt` | 仅 email/password/sso |
+| `sso` | `exports/sso/sso-list-*.json` / `.txt`、`sso_*.txt` | `sso-list`: `email----password----sso`；`sso_*.txt`: 纯 SSO 每行一个 |
 
 ```json
 "export": {
