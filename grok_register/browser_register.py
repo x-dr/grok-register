@@ -29,10 +29,10 @@ from .browser_js import (
     raise_if_cancelled,
     sleep_with_cancel,
 )
-from .browser_turnstile import get_turnstile_token
 from .register import (
     CLIPROXYAPI_GROK_BASE_URL,
     make_email_provider,
+    resolve_captcha,
     resolve_proxy,
     save_account_bundle,
 )
@@ -536,14 +536,220 @@ return !!(isVisible(given) && isVisible(family) && isVisible(password));
     raise RuntimeError("code obtained but auto-fill/submit failed")
 
 
+
+def scrape_turnstile_sitekey(session: BrowserSession) -> str | None:
+    """Extract Turnstile sitekey from live page DOM / HTML."""
+    try:
+        key = page_run_js(
+            session.page,
+            """
+const el = document.querySelector('[data-sitekey]');
+if (el) {
+  const k = (el.getAttribute('data-sitekey') || '').trim();
+  if (k) return k;
+}
+const iframe = Array.from(document.querySelectorAll('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]'))
+  .map((f) => f.getAttribute('src') || '')
+  .find(Boolean);
+if (iframe) {
+  const m = iframe.match(/[?&](?:sitekey|k)=([^&]+)/i);
+  if (m && m[1]) return decodeURIComponent(m[1]);
+}
+const html = document.documentElement ? document.documentElement.innerHTML : '';
+const patterns = [
+  /sitekey["']\\s*[:=]\\s*["'](0x4[0-9A-Za-z_-]{10,})["']/i,
+  /data-sitekey=["'](0x4[0-9A-Za-z_-]{10,})["']/i,
+  /(0x4AAAAA[0-9A-Za-z_-]{8,})/
+];
+for (const re of patterns) {
+  const m = html.match(re);
+  if (m && m[1]) return m[1];
+}
+return null;
+""",
+        )
+        if key and str(key).strip():
+            return str(key).strip()
+    except Exception:
+        pass
+    try:
+        html = session.page.content() if session.page else ""
+    except Exception:
+        html = ""
+    if html:
+        import re
+
+        for pat in (
+            r'sitekey["\']\s*[:=]\s*["\'](0x4[0-9A-Za-z_-]{10,})["\']',
+            r'data-sitekey=["\'](0x4[0-9A-Za-z_-]{10,})["\']',
+            r'(0x4AAAAA[0-9A-Za-z_-]{8,})',
+        ):
+            m = re.search(pat, html, flags=re.I)
+            if m:
+                return m.group(1)
+    try:
+        from xconsole_client import config as C
+
+        return getattr(C, "TURNSTILE_SITEKEY", None) or None
+    except Exception:
+        return None
+
+
+def inject_turnstile_token(session: BrowserSession, token: str) -> dict:
+    """Inject a solved Turnstile token into the signup page form/widgets."""
+    return page_run_js(
+        session.page,
+        r"""
+const token = String(arguments[0] || '').trim();
+if (!token) return { ok: false, reason: 'empty' };
+
+function setNativeValue(el, value) {
+  if (!el) return false;
+  const proto = el instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
+  const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+  const tracker = el._valueTracker;
+  if (tracker) tracker.setValue('');
+  if (desc && desc.set) desc.set.call(el, value);
+  else el.value = value;
+  el.setAttribute('value', value);
+  el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return String(el.value || '').length >= 20;
+}
+
+let filled = 0;
+const fields = Array.from(document.querySelectorAll(
+  'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"], input[name="g-recaptcha-response"], textarea[name="g-recaptcha-response"]'
+));
+for (const el of fields) {
+  if (setNativeValue(el, token)) filled += 1;
+}
+
+// Ensure at least one hidden field exists for form posts
+if (!fields.length) {
+  const form = document.querySelector('form') || document.body;
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'cf-turnstile-response';
+  input.value = token;
+  form.appendChild(input);
+  filled += 1;
+}
+
+// data-callback on widgets
+const callbacks = [];
+document.querySelectorAll('[data-callback], [data-sitekey], .cf-turnstile, iframe[src*="turnstile"]').forEach((node) => {
+  const name = node.getAttribute && node.getAttribute('data-callback');
+  if (name) callbacks.push(name);
+});
+let called = 0;
+for (const name of callbacks) {
+  try {
+    const fn = name.split('.').reduce((o, k) => (o ? o[k] : undefined), window);
+    if (typeof fn === 'function') { fn(token); called += 1; }
+  } catch (e) {}
+}
+
+// Common React / next patterns: search window for turnstile success handlers
+try {
+  if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+    // no-op; token already injected into response fields
+  }
+} catch (e) {}
+
+// Dispatch custom event some apps listen for
+try {
+  window.dispatchEvent(new CustomEvent('turnstile-callback', { detail: token }));
+  document.dispatchEvent(new CustomEvent('cf-turnstile-response', { detail: token }));
+} catch (e) {}
+
+// If a textarea/input still empty, force again
+document.querySelectorAll('input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]').forEach((el) => {
+  if (String(el.value || '').length < 20) setNativeValue(el, token);
+});
+
+const finalLen = Math.max(...Array.from(document.querySelectorAll(
+  'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+)).map((el) => String(el.value || '').length).concat([0]));
+
+return { ok: finalLen >= 80 || filled > 0, filled, called, finalLen };
+""",
+        token,
+    )
+
+
+def solve_turnstile_local(
+    session: BrowserSession,
+    *,
+    captcha_provider: str | None = None,
+    yescaptcha_key: str | None = None,
+    solver_url: str | None = None,
+    log: Callable[[str], None] | None = None,
+) -> str:
+    """Solve Turnstile via local solver / YesCaptcha (same as protocol path)."""
+    from xconsole_client import YesCaptchaSolver
+    from xconsole_client import config as C
+
+    _log = log or (lambda _m: None)
+    provider, solver_key, endpoint, auto_fallback = resolve_captcha(
+        provider=captcha_provider,
+        yescaptcha_key=yescaptcha_key,
+        solver_url=solver_url,
+    )
+    # Browser method defaults to local if nothing configured
+    if provider == "yescaptcha" and not solver_key:
+        provider, solver_key, endpoint, auto_fallback = resolve_captcha(
+            provider="local",
+            yescaptcha_key=yescaptcha_key or "local",
+            solver_url=solver_url,
+        )
+
+    sitekey = scrape_turnstile_sitekey(session) or getattr(C, "TURNSTILE_SITEKEY", None)
+    if not sitekey:
+        raise RuntimeError("unable to resolve Turnstile sitekey from page")
+
+    website_url = session.url() or SIGNUP_URL
+    # Prefer accounts signup URL for solver consistency
+    if "accounts.x.ai" not in website_url:
+        website_url = SIGNUP_URL
+
+    label = "本地过盾" if provider == "local" else "YesCaptcha"
+    _log(f"[browser] Turnstile via {label}… sitekey={sitekey[:16]}…")
+    solver = YesCaptchaSolver(
+        solver_key or "local",
+        endpoint=endpoint,
+        timeout=float(os.environ.get("GROK_REGISTER_CAPTCHA_TIMEOUT", "180") or 180),
+        poll_interval=float(os.environ.get("GROK_REGISTER_CAPTCHA_POLL", "2") or 2),
+        debug=False,
+        auto_fallback_endpoint=auto_fallback,
+        on_progress=lambda m: _log(f"[browser] captcha: {m}"),
+    )
+    token = solver.solve_turnstile(
+        website_url=website_url,
+        website_key=sitekey,
+        premium=(provider != "local"),
+    )
+    if not token or len(str(token)) < 80:
+        raise RuntimeError(f"captcha solver returned weak token: {token!r}")
+    _log(f"[browser] Turnstile OK ({len(token)} chars) via {label}")
+    return str(token)
+
+
 def fill_profile_and_submit(
     session: BrowserSession,
     *,
-    timeout: float = 120,
+    timeout: float = 240,
     cancel: CancelFn = None,
+    captcha_provider: str | None = None,
+    yescaptcha_key: str | None = None,
+    solver_url: str | None = None,
+    captcha_mode: str = "local",
 ) -> dict[str, str]:
     given_name, family_name, password = build_profile()
-    deadline = time.time() + timeout
+    # Local captcha solve can take 1–3 minutes
+    deadline = time.time() + max(float(timeout), 240.0)
     form_filled_once = False
     wait_cf_since: float | None = None
     last_cf_retry_at = 0.0
@@ -608,29 +814,76 @@ return setInputValue(el, value);
             form_filled_once = True
             session.log("[browser] profile fields filled")
 
-        # Turnstile
-        try:
-            token = get_turnstile_token(
-                session.page,
-                log_callback=session.log,
-                cancel_callback=cancel,
-                timeout=40,
-            )
-            if token:
-                session.log(f"[browser] turnstile ok ({len(token)} chars)")
-        except RegistrationCancelled:
-            raise
-        except Exception as ts_exc:
-            now = time.time()
-            if wait_cf_since is None:
-                wait_cf_since = now
-            if now - last_cf_retry_at >= 8:
-                session.log(f"[browser] turnstile still pending: {ts_exc}")
-                last_cf_retry_at = now
-            if now - (wait_cf_since or now) > 90:
-                raise AccountRetryNeeded(f"turnstile timeout: {ts_exc}")
-            sleep_with_cancel(1.0, cancel)
-            continue
+        # Turnstile — default: local/YesCaptcha solver + inject token
+        # captcha_mode: local|yescaptcha|click  (click = in-browser widget click)
+        mode = (captcha_mode or "local").strip().lower()
+        if mode in {"click", "browser", "widget"}:
+            try:
+                from .browser_turnstile import get_turnstile_token
+
+                token = get_turnstile_token(
+                    session.page,
+                    log_callback=session.log,
+                    cancel_callback=cancel,
+                    timeout=40,
+                )
+                if token:
+                    session.log(f"[browser] turnstile ok via click ({len(token)} chars)")
+            except RegistrationCancelled:
+                raise
+            except Exception as ts_exc:
+                now = time.time()
+                if wait_cf_since is None:
+                    wait_cf_since = now
+                if now - last_cf_retry_at >= 8:
+                    session.log(f"[browser] turnstile click pending: {ts_exc}")
+                    last_cf_retry_at = now
+                if now - (wait_cf_since or now) > 90:
+                    raise AccountRetryNeeded(f"turnstile click timeout: {ts_exc}")
+                sleep_with_cancel(1.0, cancel)
+                continue
+        else:
+            try:
+                # Prefer explicit provider; "local" mode forces local solver
+                prov = captcha_provider
+                if mode == "local":
+                    prov = "local"
+                elif mode == "yescaptcha":
+                    prov = "yescaptcha"
+                token = solve_turnstile_local(
+                    session,
+                    captcha_provider=prov,
+                    yescaptcha_key=yescaptcha_key,
+                    solver_url=solver_url,
+                    log=session.log,
+                )
+                inj = inject_turnstile_token(session, token)
+                session.log(f"[browser] turnstile injected: {inj}")
+                if not (isinstance(inj, dict) and inj.get("ok")):
+                    session.log("[browser] inject weak; retry solve once")
+                    sleep_with_cancel(1.0, cancel)
+                    token = solve_turnstile_local(
+                        session,
+                        captcha_provider=prov,
+                        yescaptcha_key=yescaptcha_key,
+                        solver_url=solver_url,
+                        log=session.log,
+                    )
+                    inj = inject_turnstile_token(session, token)
+                    session.log(f"[browser] turnstile reinjected: {inj}")
+            except RegistrationCancelled:
+                raise
+            except Exception as ts_exc:
+                now = time.time()
+                if wait_cf_since is None:
+                    wait_cf_since = now
+                if now - last_cf_retry_at >= 8:
+                    session.log(f"[browser] local turnstile failed: {ts_exc}")
+                    last_cf_retry_at = now
+                if now - (wait_cf_since or now) > 180:
+                    raise AccountRetryNeeded(f"local turnstile timeout: {ts_exc}")
+                sleep_with_cancel(2.0, cancel)
+                continue
 
         # Submit
         clicked = click_button_by_text(
@@ -842,6 +1095,10 @@ def register_one_browser(
     index: int = 1,
     email_backend: str = "22do",
     *,
+    captcha_provider: str | None = None,
+    yescaptcha_key: str | None = None,
+    solver_url: str | None = None,
+    captcha_mode: str = "local",
     do_oauth: bool = True,
     oauth_protocol: bool = True,
     oauth_debug: bool = False,
@@ -946,7 +1203,13 @@ return false;
         fill_code_and_submit(session, code)
 
         _log("fill profile + turnstile…")
-        profile = fill_profile_and_submit(session)
+        profile = fill_profile_and_submit(
+            session,
+            captcha_provider=captcha_provider,
+            yescaptcha_key=yescaptcha_key,
+            solver_url=solver_url,
+            captcha_mode=captcha_mode,
+        )
         password = profile.get("password") or ""
         _log(f"profile: {profile.get('given_name')} {profile.get('family_name')}")
 

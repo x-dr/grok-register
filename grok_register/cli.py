@@ -103,6 +103,12 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
         help="过盾 API 地址（local 默认 http://127.0.0.1:5072）",
     )
     p.add_argument(
+        "--captcha-mode",
+        choices=["local", "yescaptcha", "click"],
+        default=str(d.get("captcha_mode") or "local"),
+        help="browser 方式过盾: local(本地过盾,默认) | yescaptcha | click(页内点击)",
+    )
+    p.add_argument(
         "--yescaptcha-key",
         default=d.get("yescaptcha_key"),
         help="YesCaptcha clientKey（默认读 config / YESCAPTCHA_API_KEY）",
@@ -538,14 +544,25 @@ def main(argv: list[str] | None = None) -> int:
         print("  config: (none — using env / flags; see config.example.json)", flush=True)
     if method == "browser":
         headless_preview = bool(getattr(args, "headless", False)) and not getattr(args, "headed", False)
+        cmode = str(getattr(args, "captcha_mode", None) or "local")
         print(
             f"  browser: cloakbrowser headless={'on' if headless_preview else 'off'} "
-            f"(Turnstile 在浏览器内完成，无需本地过盾)",
+            f"captcha-mode={cmode}",
             flush=True,
         )
-    elif provider == "local":
+        if cmode == "local":
+            print(
+                f"  solver-url: {args.solver_url or endpoint or 'http://127.0.0.1:5072'} "
+                f"(browser 默认走本地过盾，请先 ./scripts/start-solver.sh)",
+                flush=True,
+            )
+        elif cmode == "click":
+            print("  captcha: 页内点击 Turnstile widget", flush=True)
+    elif method != "browser" and provider == "local":
         print(f"  solver-url: {endpoint}", flush=True)
-    elif endpoint:
+    elif method != "browser" and endpoint:
+        print(f"  yescaptcha-endpoint: {endpoint}", flush=True)
+    elif method == "browser" and str(getattr(args, "captcha_mode", "local")) == "yescaptcha" and endpoint:
         print(f"  yescaptcha-endpoint: {endpoint}", flush=True)
     if args.email == "cfmail":
         import os
@@ -602,6 +619,10 @@ def main(argv: list[str] | None = None) -> int:
             count=args.count,
             threads=1,
             email_backend=args.email,
+            captcha_provider=provider,
+            yescaptcha_key=key if provider == "yescaptcha" else args.yescaptcha_key,
+            solver_url=(args.solver_url or endpoint) if provider == "local" or args.captcha_mode == "local" else args.solver_url,
+            captcha_mode=str(args.captcha_mode or "local"),
             do_oauth=do_oauth,
             oauth_protocol=not args.no_oauth_protocol,
             oauth_debug=args.oauth_debug,

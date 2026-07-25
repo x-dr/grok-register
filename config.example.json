@@ -1,6 +1,6 @@
 {
   "method": "protocol",
-  "_method_comment": "protocol=协议注册(默认，需 captcha/local 过盾); browser=cloakbrowser 浏览器注册(参考 mytest，Turnstile 页内完成)",
+  "_method_comment": "protocol=协议注册(默认); browser=cloakbrowser 浏览器注册。browser 默认 captcha.mode/local 本地过盾注入 token",
   "headless": false,
   "_headless_comment": "仅 browser 方式有效；false=有界面更稳",
   "email": "cfmail",
@@ -14,7 +14,9 @@
     "provider": "local",
     "yescaptcha_key": "",
     "yescaptcha_endpoint": "",
-    "solver_url": "http://127.0.0.1:5072"
+    "solver_url": "http://127.0.0.1:5072",
+    "mode": "local",
+    "_mode_comment": "browser 用: local|yescaptcha|click"
   },
   "cfmail": {
     "base_url": "https://xxxxx.xyz",
@@ -43,7 +45,7 @@
   "accounts_output_dir": "./accounts_output",
   "no_save": false,
   "json": false,
-  "_comment": "method: protocol|browser；本地过盾仅 protocol 需要 provider=local + ./scripts/start-solver.sh；browser 用 cloakbrowser，无需本地过盾",
+  "_comment": "method: protocol|browser；protocol 与 browser 默认均可 provider=local + ./scripts/start-solver.sh；browser 可用 captcha.mode=click 页内点击（不推荐）",
   "export": {
     "enabled": true,
     "dir": "./exports",

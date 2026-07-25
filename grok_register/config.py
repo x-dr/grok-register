@@ -229,6 +229,12 @@ def cli_defaults_from_config(data: dict[str, Any]) -> dict[str, Any]:
     set_if("captcha", captcha.get("provider") or data.get("captcha_provider"))
     set_if("solver_url", captcha.get("solver_url") or data.get("solver_url"))
     set_if(
+        "captcha_mode",
+        data.get("captcha_mode")
+        or captcha.get("mode")
+        or captcha.get("browser_mode"),
+    )
+    set_if(
         "yescaptcha_key",
         captcha.get("yescaptcha_key") or data.get("yescaptcha_key"),
     )

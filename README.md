@@ -6,7 +6,7 @@
 
 1. 注册（两种方式）：
    - **protocol**（默认）：协议/API 注册（邮箱验证 + Turnstile solver + create_account）
-   - **browser**：cloakbrowser 浏览器模拟注册（参考 `mytest/app.py`，Turnstile 在页内点击，无需本地过盾）
+   - **browser**：cloakbrowser 浏览器模拟注册（参考 `mytest/app.py`；Turnstile **默认走本地过盾** 注入 token，也可用 `--captcha-mode click` 页内点击）
 2. SSO 提取
 3. 可选开启 NSFW（ToS + 生日 + `always_show_nsfw_content`；默认开启，失败不阻断）
 4. 可选 Grok Build OAuth → CLIProxyAPI 兼容 auth JSON
@@ -149,11 +149,17 @@ pip install cloakbrowser
 # 或
 pip install -e '.[browser]'
 
+# 先启动本地过盾（browser 默认 captcha-mode=local）
+./scripts/start-solver.sh
+
 # 有界面（更稳，默认 headless=false）
 python -m grok_register --method browser -e 22do -n 1
 
 # 无头
 python -m grok_register --method browser --headless -e 22do -n 1
+
+# 若仍要页内点击 Turnstile（不推荐，易卡）
+# python -m grok_register --method browser --captcha-mode click -e 22do
 ```
 
 `config.json`：
@@ -163,13 +169,19 @@ python -m grok_register --method browser --headless -e 22do -n 1
   "method": "browser",
   "headless": false,
   "email": "22do",
-  "proxy": "socks5h://127.0.0.1:40000"
+  "proxy": "socks5h://127.0.0.1:40000",
+  "captcha": {
+    "provider": "local",
+    "solver_url": "http://127.0.0.1:5072",
+    "mode": "local"
+  }
 }
 ```
 
 说明：
 
-- browser 方式在真实页面内完成 Turnstile，**不需要** `./scripts/start-solver.sh`
+- browser 默认 `captcha-mode=local`：用本地过盾拿 token，再注入页面后提交
+- `--captcha-mode yescaptcha` 走云打码；`--captcha-mode click` 才是页内点 widget
 - 邮箱后端与 protocol 相同：`tempmail` / `cfmail` / `cloudflare` / `22do`
 - 浏览器模式强制串行（`threads=1`）
 - 注册成功后的 NSFW / OAuth device-flow / 导出 / 远程推送与 protocol 共用
