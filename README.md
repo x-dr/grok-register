@@ -4,7 +4,9 @@
 
 核心协议客户端来自上游 vendored 的 `grok-build-auth` / `xconsole_client`，去掉了 Go 主进程、PG/Redis、管理台与 HTTP sidecar，只保留：
 
-1. 协议注册（邮箱验证 + Turnstile + create_account）
+1. 注册（两种方式）：
+   - **protocol**（默认）：协议/API 注册（邮箱验证 + Turnstile solver + create_account）
+   - **browser**：cloakbrowser 浏览器模拟注册（参考 `mytest/app.py`，Turnstile 在页内点击，无需本地过盾）
 2. SSO 提取
 3. 可选开启 NSFW（ToS + 生日 + `always_show_nsfw_content`；默认开启，失败不阻断）
 4. 可选 Grok Build OAuth → CLIProxyAPI 兼容 auth JSON
@@ -33,8 +35,11 @@ pip install -e .                   # 可选：获得 grok-register 命令
 cp config.example.json config.json
 # 编辑 config.json：captcha.provider=local，以及 cfmail / 邮箱相关字段
 
-# ④ 注册
+# ④ 注册（默认 protocol）
 python -m grok_register
+
+# 或 browser 方式（无需本地过盾，需 cloakbrowser）
+# python -m grok_register --method browser -e 22do
 ```
 
 停止过盾：
@@ -134,7 +139,43 @@ export GROK_REGISTER_SOLVER_URL=http://127.0.0.1:5072
 python -m grok_register --captcha local --solver-url http://127.0.0.1:5072
 ```
 
-### 2.4 云打码（可选替代）
+### 2.4 浏览器注册方式（cloakbrowser，可选）
+
+当协议注册被 Cloudflare / 页面变更卡住时，可改用 **browser** 方式（逻辑来自 `mytest/app.py`）：
+
+```bash
+# 安装浏览器依赖（首次会下载 Chromium）
+pip install cloakbrowser
+# 或
+pip install -e '.[browser]'
+
+# 有界面（更稳，默认 headless=false）
+python -m grok_register --method browser -e 22do -n 1
+
+# 无头
+python -m grok_register --method browser --headless -e 22do -n 1
+```
+
+`config.json`：
+
+```json
+{
+  "method": "browser",
+  "headless": false,
+  "email": "22do",
+  "proxy": "socks5h://127.0.0.1:40000"
+}
+```
+
+说明：
+
+- browser 方式在真实页面内完成 Turnstile，**不需要** `./scripts/start-solver.sh`
+- 邮箱后端与 protocol 相同：`tempmail` / `cfmail` / `cloudflare` / `22do`
+- 浏览器模式强制串行（`threads=1`）
+- 注册成功后的 NSFW / OAuth device-flow / 导出 / 远程推送与 protocol 共用
+
+### 2.5 云打码（可选替代）
+
 
 不想本地起浏览器时，改用 YesCaptcha：
 

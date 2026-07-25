@@ -1,4 +1,4 @@
-"""Standalone Grok / x.ai protocol registration CLI.
+"""Standalone Grok / x.ai registration CLI (protocol + browser).
 
 Separated from grokcli-2api registration sidecar (grok-build-auth + adapter).
 """

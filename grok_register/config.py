@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # env key ← config path (dot notation via nested dict walk is handled in apply)
 # Values are applied only when env is currently empty (unless force=True).
 _ENV_MAP: list[tuple[str, tuple[str, ...]]] = [
+    # register method
+    ("GROK_REGISTER_METHOD", ("method",)),
+    ("GROK_REGISTER_METHOD", ("register", "method")),
     # captcha
     ("GROK_REGISTER_CAPTCHA", ("captcha", "provider")),
     ("YESCAPTCHA_API_KEY", ("captcha", "yescaptcha_key")),
@@ -200,6 +203,17 @@ def cli_defaults_from_config(data: dict[str, Any]) -> dict[str, Any]:
 
     set_if("count", data.get("count") or data.get("n"))
     set_if("threads", data.get("threads") or data.get("t"))
+    reg = data.get("register") if isinstance(data.get("register"), dict) else {}
+    set_if(
+        "method",
+        data.get("method")
+        or data.get("register_method")
+        or reg.get("method"),
+    )
+    if "headless" in data:
+        out["headless"] = bool(data.get("headless"))
+    if "headless" in reg:
+        out["headless"] = bool(reg.get("headless"))
     set_if("email", data.get("email") or data.get("email_backend") or data.get("mail"))
     raw_proxy = data.get("proxy") or data.get("https_proxy") or data.get("http_proxy")
     if raw_proxy:
@@ -258,6 +272,18 @@ def cli_defaults_from_config(data: dict[str, Any]) -> dict[str, Any]:
         out["export_formats"] = []
     if data.get("export_enabled") is False:
         out["export_formats"] = []
+
+    # env fallbacks
+    if "method" not in out:
+        env_m = (os.environ.get("GROK_REGISTER_METHOD") or "").strip().lower()
+        if env_m in {"protocol", "browser"}:
+            out["method"] = env_m
+    if "headless" not in out:
+        env_h = (os.environ.get("GROK_REGISTER_HEADLESS") or "").strip().lower()
+        if env_h in {"1", "true", "yes", "on"}:
+            out["headless"] = True
+        elif env_h in {"0", "false", "no", "off"}:
+            out["headless"] = False
 
     # coerce ints
     for k in ("count", "threads"):

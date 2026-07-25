@@ -2,3 +2,5 @@ curl_cffi>=0.7.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 PySocks>=1.7.1
+# optional for --method browser
+# cloakbrowser

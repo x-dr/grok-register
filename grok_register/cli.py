@@ -38,7 +38,7 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="grok-register",
         description=(
-            "独立注册机 CLI：协议注册 x.ai 账号 → 提取 SSO → "
+            "独立注册机 CLI：协议/浏览器注册 x.ai 账号 → 提取 SSO → "
             "可选 Grok Build OAuth / CLIProxyAPI auth 导出。"
             "优先读 config.json（见 config.example.json）。"
         ),
@@ -64,6 +64,25 @@ def build_parser(defaults: dict | None = None) -> argparse.ArgumentParser:
         type=int,
         default=int(d.get("threads", 1)),
         help="并发线程数（注册阶段；OAuth 串行）",
+    )
+    p.add_argument(
+        "-m",
+        "--method",
+        choices=["protocol", "browser"],
+        default=str(d.get("method") or "protocol"),
+        help="注册方式: protocol(协议/API，默认) | browser(cloakbrowser 浏览器模拟，参考 mytest)",
+    )
+    p.add_argument(
+        "--headless",
+        action="store_true",
+        default=bool(d.get("headless", False)),
+        help="browser 方式下无头运行（默认有界面，更稳）",
+    )
+    p.add_argument(
+        "--headed",
+        action="store_true",
+        default=False,
+        help="browser 方式强制有头（覆盖 config headless）",
     )
     p.add_argument(
         "-e",
@@ -503,10 +522,13 @@ def main(argv: list[str] | None = None) -> int:
         enable_nsfw = bool(args.enable_nsfw)
     out_dir = None if args.no_save else args.accounts_output_dir
 
+    method = str(getattr(args, "method", None) or defaults.get("method") or "protocol").strip().lower()
     print(
         f"grok-register v{__version__}: {args.count} account(s), "
+        f"method={method}, "
         f"threads={min(args.threads, args.count)}, email={args.email}, "
-        f"captcha={provider}, oauth={'on' if do_oauth else 'off'}, "
+        f"captcha={provider if method == 'protocol' else 'in-browser'}, "
+        f"oauth={'on' if do_oauth else 'off'}, "
         f"nsfw={'on' if enable_nsfw else 'off'}",
         flush=True,
     )
@@ -514,7 +536,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  config: {cfg_path}", flush=True)
     else:
         print("  config: (none — using env / flags; see config.example.json)", flush=True)
-    if provider == "local":
+    if method == "browser":
+        headless_preview = bool(getattr(args, "headless", False)) and not getattr(args, "headed", False)
+        print(
+            f"  browser: cloakbrowser headless={'on' if headless_preview else 'off'} "
+            f"(Turnstile 在浏览器内完成，无需本地过盾)",
+            flush=True,
+        )
+    elif provider == "local":
         print(f"  solver-url: {endpoint}", flush=True)
     elif endpoint:
         print(f"  yescaptcha-endpoint: {endpoint}", flush=True)
@@ -556,25 +585,53 @@ def main(argv: list[str] | None = None) -> int:
     print(flush=True)
 
     t0 = time.time()
-    results = run_batch(
-        count=args.count,
-        threads=args.threads,
-        email_backend=args.email,
-        captcha_provider=provider,
-        yescaptcha_key=key if provider == "yescaptcha" else args.yescaptcha_key,
-        solver_url=(args.solver_url or endpoint) if provider == "local" else None,
-        do_oauth=do_oauth,
-        oauth_headless=not args.oauth_headed,
-        oauth_timeout=args.oauth_timeout,
-        oauth_interactive_fallback=args.oauth_interactive_fallback,
-        oauth_protocol=not args.no_oauth_protocol,
-        oauth_debug=args.oauth_debug,
-        cliproxyapi_auth_dir=args.cliproxyapi_auth_dir,
-        cliproxyapi_base_url=args.cliproxyapi_base_url,
-        accounts_output_dir=out_dir,
-        proxy=args.proxy,
-        enable_nsfw=enable_nsfw,
-    )
+    method = str(args.method or "protocol").strip().lower()
+    headless = bool(args.headless)
+    if args.headed:
+        headless = False
+
+    if method == "browser":
+        from .browser_register import run_batch_browser
+
+        if args.threads and int(args.threads) > 1:
+            print(
+                "  note: browser 方式强制串行 (threads=1)，cloakbrowser 不适合多开",
+                flush=True,
+            )
+        results = run_batch_browser(
+            count=args.count,
+            threads=1,
+            email_backend=args.email,
+            do_oauth=do_oauth,
+            oauth_protocol=not args.no_oauth_protocol,
+            oauth_debug=args.oauth_debug,
+            cliproxyapi_auth_dir=args.cliproxyapi_auth_dir,
+            cliproxyapi_base_url=args.cliproxyapi_base_url,
+            accounts_output_dir=out_dir,
+            proxy=args.proxy,
+            enable_nsfw=enable_nsfw,
+            headless=headless,
+        )
+    else:
+        results = run_batch(
+            count=args.count,
+            threads=args.threads,
+            email_backend=args.email,
+            captcha_provider=provider,
+            yescaptcha_key=key if provider == "yescaptcha" else args.yescaptcha_key,
+            solver_url=(args.solver_url or endpoint) if provider == "local" else None,
+            do_oauth=do_oauth,
+            oauth_headless=not args.oauth_headed,
+            oauth_timeout=args.oauth_timeout,
+            oauth_interactive_fallback=args.oauth_interactive_fallback,
+            oauth_protocol=not args.no_oauth_protocol,
+            oauth_debug=args.oauth_debug,
+            cliproxyapi_auth_dir=args.cliproxyapi_auth_dir,
+            cliproxyapi_base_url=args.cliproxyapi_base_url,
+            accounts_output_dir=out_dir,
+            proxy=args.proxy,
+            enable_nsfw=enable_nsfw,
+        )
 
     ok_sso = [r for r in results if r.get("sso")]
     ok_build = [r for r in results if r.get("cliproxyapi_auth")]

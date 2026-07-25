@@ -1,4 +1,8 @@
 {
+  "method": "protocol",
+  "_method_comment": "protocol=协议注册(默认，需 captcha/local 过盾); browser=cloakbrowser 浏览器注册(参考 mytest，Turnstile 页内完成)",
+  "headless": false,
+  "_headless_comment": "仅 browser 方式有效；false=有界面更稳",
   "email": "cfmail",
   "count": 1,
   "threads": 1,
@@ -39,7 +43,7 @@
   "accounts_output_dir": "./accounts_output",
   "no_save": false,
   "json": false,
-  "_comment": "本地过盾: provider=local + 先启动 ./scripts/start-solver.sh（默认本机；--docker 可选）；云打码: provider=yescaptcha + yescaptcha_key",
+  "_comment": "method: protocol|browser；本地过盾仅 protocol 需要 provider=local + ./scripts/start-solver.sh；browser 用 cloakbrowser，无需本地过盾",
   "export": {
     "enabled": true,
     "dir": "./exports",
